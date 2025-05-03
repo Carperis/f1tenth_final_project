@@ -16,3 +16,4 @@ h5py
 openai==0.8.0
 grad-cam
 ultralytics
+open3d

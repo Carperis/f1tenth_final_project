@@ -5,4 +5,5 @@ data
 **.pt
 **.mp4
 **.csv
+**.npy
 **__pycache__

@@ -29,13 +29,13 @@ else:
 
 
 def load_scene_path(data_dir):
-    rgb_dir = os.path.join(data_dir, "rgb")
+    rgb_dir = os.path.join(data_dir, "color")
     depth_dir = os.path.join(data_dir, "depth")
     pose_dir = os.path.join(data_dir, "pose")
 
     # check if folders exist
     if not (os.path.exists(rgb_dir) and os.path.exists(depth_dir) and os.path.exists(pose_dir)):
-        raise FileNotFoundError(f"rgb, depth, or pose folders are missing in {data_dir}")
+        raise FileNotFoundError(f"color, depth, or pose folders are missing in {data_dir}")
 
     rgb_list = sorted([os.path.join(rgb_dir, f) for f in os.listdir(rgb_dir)])
     depth_list = sorted([os.path.join(depth_dir, f) for f in os.listdir(depth_dir)])
@@ -240,7 +240,7 @@ def create_lseg_map(
     points into 3D space, and accumulates the features into a fixed-resolution 2D top-down grid map.
 
     Args:
-        data_dir (str): Path to a directory containing 'rgb/', 'depth/', and 'pose/' subfolders.
+        data_dir (str): Path to a directory containing 'color/', 'depth/', and 'pose/' subfolders.
         clip_version (str): CLIP model variant used by LSeg (e.g., 'ViT-B/32').
         clip_feat_dim (int): Dimensionality of the CLIP-aligned features.
         checkpoint_dir (str): Path to the pretrained LSeg model checkpoint.
@@ -260,8 +260,6 @@ def create_lseg_map(
         grid (np.ndarray): (gs, gs, clip_feat_dim) grid of aggregated CLIP features per cell.
         obstacles (np.ndarray): (gs, gs) binary occupancy map indicating observed obstacles.
     '''
-
-    device = torch.device("mps")
 
     # Load file paths
     rgb_list, depth_list, pose_list = load_scene_path(data_dir)
@@ -351,7 +349,7 @@ def create_lseg_map(
             x, y = pos2grid_id(gs, cs, -p_global[1], p_global[0])
 
             # Skip points outside the grid or from ceiling
-            if x < 0 or y < 0 or x >= gs or y >= gs or p_local[2] > 1.0:
+            if x < 0 or y < 0 or x >= gs or y >= gs or p_local[2] > 2.0:
                 continue
 
             # Project to RGB image to get color
@@ -390,7 +388,7 @@ clip_feat_dim = {'RN50': 1024, 'RN101': 512, 'RN50x4': 640, 'RN50x16': 768,
 clip_model, preprocess = clip.load(clip_version)  # clip.available_models()
 clip_model.to(device).eval()
 
-data_path='./AGH_data/'
+data_path='./data/'
 
 cam_mat = np.array([
       [614.7241, 0,       319.6286],

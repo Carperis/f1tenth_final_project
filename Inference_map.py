@@ -75,6 +75,9 @@ lang = [
     "void",
     "wall",
     "floor",
+    "chair",
+    "table",
+    "door",
 ]
 
 clip_version = "ViT-B/32"

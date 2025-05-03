@@ -3,11 +3,12 @@ import torch.nn.functional as F
 from scipy.spatial.transform import Rotation as R
 import pandas as pd
 import numpy as np
+from PIL import Image
 
 import matplotlib.patches as mpatches
 
 
-def load_pose(pose_file, pitch_deg):
+def load_pose(pose_file):
     '''
     pose_file: CSV file, each row = [x, y, z, qx, qy, qz, qw]
     '''
