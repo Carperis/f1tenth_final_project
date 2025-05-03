@@ -1,16 +1,12 @@
-import sys
 import os
-import imageio
 import numpy as np
 import cv2
 import tqdm
-from IPython.display import HTML
 from base64 import b64encode
 import torch
 import math
 from tqdm import tqdm
 from torchvision.transforms import transforms
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from PIL import Image
 
@@ -23,6 +19,13 @@ clip_version = "ViT-B/32"
 clip_feat_dim = {'RN50': 1024, 'RN101': 512, 'RN50x4': 640, 'RN50x16': 768,
                 'RN50x64': 1024, 'ViT-B/32': 512, 'ViT-B/16': 512, 'ViT-L/14': 768}[clip_version]
 checkpoint_dir='demo_e200.ckpt'
+
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
 
 
 def load_scene_path(data_dir):
@@ -44,7 +47,7 @@ def load_lseg_model(checkpoint_dir, labels, crop_size):
     model = LSegEncNet(labels, arch_option=0, block_depth=0, activation='lrelu', crop_size=crop_size)
 
     # Load checkpoint (allowing full object because old model)
-    pretrained_state_dict = torch.load(checkpoint_dir, weights_only=False)
+    pretrained_state_dict = torch.load(checkpoint_dir, weights_only=False, map_location=device)
 
     # Correct: use pretrained_state_dict, not checkpoint
     pretrained_state_dict = {k.lstrip('net.'): v for k, v in pretrained_state_dict['state_dict'].items()}
@@ -219,7 +222,6 @@ def create_lseg_map(
     clip_feat_dim,
     checkpoint_dir,
     camera_height,
-    pitch_deg=0,
     gs=1000,
     cs=0.5,
     crop_size=480,
@@ -243,7 +245,6 @@ def create_lseg_map(
         clip_feat_dim (int): Dimensionality of the CLIP-aligned features.
         checkpoint_dir (str): Path to the pretrained LSeg model checkpoint.
         camera_height (float): Height of the camera from the ground in meters.
-        pitch_deg (float): Pitch correction in degrees for upward/downward camera tilt (default: 0).
         gs (int): Grid size (number of cells per axis in the output top-down map).
         cs (float): Cell size in meters (world units per grid cell).
         crop_size (int): Crop size used when running LSeg on input RGB images.
@@ -260,7 +261,7 @@ def create_lseg_map(
         obstacles (np.ndarray): (gs, gs) binary occupancy map indicating observed obstacles.
     '''
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("mps")
 
     # Load file paths
     rgb_list, depth_list, pose_list = load_scene_path(data_dir)
@@ -300,7 +301,7 @@ def create_lseg_map(
         depth = load_depth(depth_path)*0.001
 
         # Load pose (robot to world)
-        rot ,pos = load_pose(pose_path,pitch_deg)
+        rot ,pos = load_pose(pose_path)
 
         # Convert robot pose to camera pose
         pos[2] += camera_height
@@ -383,7 +384,6 @@ def create_lseg_map(
 
     return color_top_down, grid, obstacles
 
-device = "mps"
 clip_version = "ViT-B/32"
 clip_feat_dim = {'RN50': 1024, 'RN101': 512, 'RN50x4': 640, 'RN50x16': 768,
                 'RN50x64': 1024, 'ViT-B/32': 512, 'ViT-B/16': 512, 'ViT-L/14': 768}[clip_version]
@@ -404,7 +404,6 @@ color_top_down,lseg_map,obstacles=create_lseg_map(
     clip_feat_dim=clip_feat_dim,
     checkpoint_dir=checkpoint_dir,
     camera_height=0.2,
-    pitch_deg=20,
     gs=2000,
     cs=0.1,
     crop_size=480,

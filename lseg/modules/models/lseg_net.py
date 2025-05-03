@@ -11,6 +11,12 @@ import torch.nn.functional as F
 
 from .lseg_blocks import _make_encoder, FeatureFusionBlock, FeatureFusionBlock_custom, forward_vit, Interpolate
 
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
 
 class depthwise_clipseg_conv(nn.Module):
     def __init__(self):
@@ -85,7 +91,7 @@ class BaseModel(torch.nn.Module):
         Args:
             path (str): file path
         """
-        parameters = torch.load(path, map_location=torch.device("cpu"))
+        parameters = torch.load(path, map_location=device)
 
         if "optimizer" in parameters:
             parameters = parameters["model"]

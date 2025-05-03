@@ -18,6 +18,13 @@ from utils import *
 import clip
 from lseg.modules.models.lseg_net import LSegEncNet
 
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
+
 def get_text_feat(clip_model, in_text, clip_dim, batch_size=64 ):
     '''
     Args:
@@ -70,7 +77,6 @@ lang = [
     "floor",
 ]
 
-device = "mps"
 clip_version = "ViT-B/32"
 clip_feat_dim = {'RN50': 1024, 'RN101': 512, 'RN50x4': 640, 'RN50x16': 768,
                 'RN50x64': 1024, 'ViT-B/32': 512, 'ViT-B/16': 512, 'ViT-L/14': 768}[clip_version]
