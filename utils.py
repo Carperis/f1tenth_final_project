@@ -20,17 +20,7 @@ def load_pose(pose_file, pitch_deg):
     r = R.from_quat(quat)
     rot = r.as_matrix()
 
-    # Apply inverse pitch correction (rotation around y-axis)
-    pitch_rad = -np.deg2rad(pitch_deg)
-    R_pitch_inv = np.array([
-        [np.cos(pitch_rad), 0, np.sin(pitch_rad)],
-        [0, 1, 0],
-        [-np.sin(pitch_rad), 0, np.cos(pitch_rad)]
-    ])
-    rot = R_pitch_inv @ rot
-
     return rot, pos
-
 
 def load_depth(depth_filepath):
     with open(depth_filepath, "rb") as f:

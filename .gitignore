@@ -1,1 +1,8 @@
 **DS_Store
+data
+**.ckpt
+**.mcap
+**.pt
+**.mp4
+**.csv
+**__pycache__
