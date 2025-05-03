@@ -9,12 +9,12 @@ UDP_PORT = 5005
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-with open("mpc_dynamic_trajectory.csv", newline='') as csvfile:
+with open("/home/shreya/final_project/f1tenth_final_project/traj_generator/mpc_dynamic_trajectory.csv", newline='') as csvfile:
     reader = csv.reader(csvfile)
     for row in reader:
         line = ','.join(row)
         sock.sendto(line.encode(), (UDP_IP, UDP_PORT))
-        time.sleep(0.1)  # send at 10 Hz; adjust as needed
+        time.sleep(0.04) 
 
 # Optional: send end marker
 sock.sendto(b"__END__", (UDP_IP, UDP_PORT))
