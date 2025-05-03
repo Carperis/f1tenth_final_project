@@ -12,7 +12,7 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 with open("/home/shreya/final_project/f1tenth_final_project/traj_generator/mpc_dynamic_trajectory.csv", newline='') as csvfile:
     reader = csv.reader(csvfile)
     for row in reader:
-        line = ','.join(row)
+        line = ';'.join(row)
         sock.sendto(line.encode(), (UDP_IP, UDP_PORT))
         time.sleep(0.04) 
 
