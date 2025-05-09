@@ -188,3 +188,118 @@ def load_map(load_path):
     with open(load_path, "rb") as f:
         map = np.load(f)
     return map
+
+
+def grid2map_coords(grid_coords, gs=2000, cs=0.1, angle_degrees=63, tx=11, ty=8, tz=0.0):
+    """
+    Converts grid coordinates to map coordinates.
+    Args:
+        grid_coords: A list of [gx, gy] integer grid coordinates.
+        gs (int): Grid size.
+        cs (float): Cell size or scaling factor.
+        angle_degrees (float): Rotation angle in degrees.
+        tx (float): Translation in X.
+        ty (float): Translation in Y.
+        tz (float, optional): Translation in Z. Defaults to 0.0.
+    Returns:
+        A list of [mx, my] float map coordinates.
+    """
+    # Apply scaling and centering
+    scaled_points = [[cs * (gx - gs / 2), cs * (gy - gs / 2)] for gx, gy in grid_coords]
+    
+    # Transformation logic (from transform_points)
+    angle_radians = np.deg2rad(angle_degrees)
+    cos_theta = np.cos(angle_radians)
+    sin_theta = np.sin(angle_radians)
+
+    # Create the 4x4 transformation matrix
+    transform_matrix = np.array([
+        [cos_theta,  sin_theta, 0,  0],
+        [-sin_theta, cos_theta, 0,  0],
+        [0,          0,         1,  0],
+        [tx,         ty,        tz, 1]
+    ])
+
+    # Convert scaled_points to a NumPy array
+    points_array = np.array(scaled_points)
+    
+    # Create homogeneous coordinates: add a z-column (all zeros) and a w-column (all ones)
+    num_points = points_array.shape[0]
+    homogeneous_points = np.hstack((points_array, np.zeros((num_points, 1)), np.ones((num_points, 1))))
+    
+    # Apply the transformation to all points at once
+    transformed_homogeneous_points = homogeneous_points @ transform_matrix
+    
+    # Convert back to 2D [x', y'] by taking the first two columns
+    map_coords = transformed_homogeneous_points[:, :2].tolist()
+    
+    return map_coords
+
+
+def map2grid_coords(map_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx = 11, ty = 8, tz = 0.0):
+    """
+    Converts map coordinates back to grid coordinates.
+    This is the inverse of grid2map_coords.
+    Args:
+        map_coords (list[list[float]]): A list of [mx, my] float map coordinates.
+        gs (int): Grid size.
+        cs (float): Cell size or scaling factor.
+        angle_degrees (float): Rotation angle in degrees (used in the forward transform).
+        tx (float): Translation in X (used in the forward transform).
+        ty (float): Translation in Y (used in the forward transform).
+        tz (float, optional): Translation in Z (used in the forward transform). Defaults to 0.0.
+    Returns:
+        list[list[int]]: A list of [gx, gy] integer grid coordinates.
+    """
+    # 1. Construct the forward transformation matrix T (same as in grid2map_coords)
+    angle_radians = np.deg2rad(angle_degrees)
+    cos_theta = np.cos(angle_radians)
+    sin_theta = np.sin(angle_radians)
+    
+    transform_matrix_fwd = np.array([
+        [cos_theta,  sin_theta, 0,  0],
+        [-sin_theta, cos_theta, 0,  0],
+        [0,          0,         1,  0],
+        [tx,         ty,        tz, 1]
+    ])
+
+    # 2. Calculate the inverse transformation matrix T_inv
+    try:
+        transform_matrix_inv = np.linalg.inv(transform_matrix_fwd)
+    except np.linalg.LinAlgError:
+        raise ValueError("Transformation matrix is singular and cannot be inverted.")
+
+    # 3. Prepare map_coords for inverse transformation
+    map_points_array = np.array(map_coords)
+    num_points = map_points_array.shape[0]
+    
+    # Homogeneous coordinates for map points are [mx, my, tz_forward, 1]
+    # because the forward transform results in z_transformed = original_z (0) + tz = tz
+    map_homogeneous_points = np.hstack((
+        map_points_array,
+        np.full((num_points, 1), tz), # Use tz from the forward transform for the z-component
+        np.ones((num_points, 1))
+    ))
+
+    # 4. Apply the inverse transformation to get scaled_homogeneous_points
+    # P_scaled_h = P_map_h @ T_inv
+    # This should result in [xs, ys, 0, 1]
+    scaled_homogeneous_points = map_homogeneous_points @ transform_matrix_inv
+
+    # Extract scaled 2D points [x_scaled, y_scaled]
+    scaled_points_array = scaled_homogeneous_points[:, :2]
+
+    # 5. Reverse scaling and centering
+    # x_scaled = cs * (gx - gs / 2)  => gx = (x_scaled / cs) + (gs / 2)
+    # y_scaled = cs * (gy - gs / 2)  => gy = (y_scaled / cs) + (gs / 2)
+    
+    grid_coords_list_float = []
+    for x_scaled, y_scaled in scaled_points_array:
+        gx = (x_scaled / cs) + (gs / 2.0)
+        gy = (y_scaled / cs) + (gs / 2.0)
+        grid_coords_list_float.append([gx, gy])
+
+    # 6. Convert to integer grid coordinates by rounding
+    grid_coords_list_int = [[int(round(gx)), int(round(gy))] for gx, gy in grid_coords_list_float]
+    
+    return grid_coords_list_int

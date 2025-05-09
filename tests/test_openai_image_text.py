@@ -17,9 +17,8 @@ def encode_image(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode("utf-8")
 
-
 # Path to your image
-image_path = "./f1tenth_final_project/tests/img.jpeg"
+image_path = "./tests/img.jpeg"
 
 # Getting the Base64 string
 base64_image = encode_image(image_path)

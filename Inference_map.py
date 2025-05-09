@@ -144,8 +144,6 @@ lang = [
     "void",
     "wall",
     "floor",
-    "chair",
-    "table",
     "door",
 ]
 
@@ -187,7 +185,7 @@ plt.imshow(seg)
 
 # Example usage of the new function:
 # Ensure 'door' is in your 'lang' list or change the prompt
-user_prompt = "chair"
+user_prompt = "door"
 top_n = 5
 if user_prompt in lang:
     top_points = find_top_k_points(
