@@ -8,3 +8,7 @@ data
 **.npy
 **__pycache__
 **.pgm
+.vscode
+**.png
+**.jpg
+**.jpeg
