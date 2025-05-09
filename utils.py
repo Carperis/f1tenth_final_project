@@ -191,6 +191,7 @@ def load_map(load_path):
 
 
 def grid2map_coords(grid_coords, gs=2000, cs=0.1, angle_degrees=63, tx=11, ty=8, tz=0.0):
+# def grid2map_coords(grid_coords, gs=2000, cs=0.1, angle_degrees=63, tx=11 - 2.7, ty=8 + 8.14, tz=0.0):
     """
     Converts grid coordinates to map coordinates.
     Args:
@@ -235,8 +236,8 @@ def grid2map_coords(grid_coords, gs=2000, cs=0.1, angle_degrees=63, tx=11, ty=8,
     
     return map_coords
 
-
 def map2grid_coords(map_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx = 11, ty = 8, tz = 0.0):
+# def map2grid_coords(map_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx=11 - 2.7, ty=8 + 8.14, tz = 0.0):
     """
     Converts map coordinates back to grid coordinates.
     This is the inverse of grid2map_coords.

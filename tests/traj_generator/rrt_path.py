@@ -8,8 +8,8 @@ from skimage.draw import line as sk_line
 # === Parameters ===
 resolution = 0.05
 origin = np.array([0.0, 0.0])
-map_file = "map.pgm"
-start_goal_file = "start_goal.csv"
+map_file = "/Users/sam/Desktop/Codes/projects_robotics/f1tenth_final_project/maps/map-corrected.pgm"
+start_goal_file = "/Users/sam/Desktop/Codes/projects_robotics/f1tenth_final_project/traj_generator/start_goal.csv"
 max_iters = 10000
 step_size = 10  # in pixels
 goal_threshold = 15  # in pixels

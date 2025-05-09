@@ -21,8 +21,8 @@ else:
 print(f"Using device: {device}")
 
 # Paths to map files
-LSEG_MAP_PATH = "lseg_map.npy"
-OBSTACLES_MAP_PATH = "obstacles.npy"
+LSEG_MAP_PATH = "./maps/lseg_map.npy"
+OBSTACLES_MAP_PATH = "./maps/obstacles.npy"
 
 # Load maps
 print("Loading lseg_map...")
