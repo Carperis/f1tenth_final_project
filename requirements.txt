@@ -17,3 +17,5 @@ openai
 grad-cam
 ultralytics
 open3d
+langchain_openai
+langchain

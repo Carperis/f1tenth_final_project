@@ -10,7 +10,7 @@ class PointVisualizer:
         if self.map_img is None:
             raise FileNotFoundError(f"Could not read map image from {self.map_file}")
 
-    def visualize_points(self, points_to_visualize_px, save_filepath=None, point_label="Points", point_type="px"):
+    def visualize_points(self, points_to_visualize_px, save_filepath=None, point_label="Points", point_type="px", show_id=False):
         
         assert point_type in ["px", "map", "grid"], "point_type must be 'px', 'map', or 'grid'"
         if point_type == "map":
@@ -26,7 +26,10 @@ class PointVisualizer:
             points_x_coords = [p[0] for p in points_to_visualize_px]
             points_y_coords = [p[1] for p in points_to_visualize_px]
             plt.plot(points_x_coords, points_y_coords, 'bo', markersize=5, label=point_label)
-            title = f"Point Visualization"
+            if show_id:
+                for i, p in enumerate(points_to_visualize_px):
+                    plt.text(p[0] - 1, p[1] - 1, str(i), fontsize=12, ha='right', color='red')
+            title = f"Point Visualization ({len(points_to_visualize_px)} points)"
         else:
             title = f"{point_label} Visualization - No Points Provided"
 
@@ -62,8 +65,34 @@ if __name__ == '__main__':
     # map_points = grid2map_coords(grid_points)
     # points = map2px_coords(map_points)
     
-    points = [[6,3],[6,4]]
-    points = map2grid_coords(points)
-    print(points)
+    # points = [[6,3],[6,4]]
+    # points = map2grid_coords(points)
+    # print(points)
     
-    visualizer.visualize_points(points, point_type="grid")
+    # points = [
+    #     [35.38771570222914, 9.827381412635743],
+    #     [35.52221540462193, 9.871083015080627],
+    #     [8.861152308636912, 3.141468271879785],
+    #     [35.47681635464797, 9.78198236266179],
+    #     [35.61131605704077, 9.825683965106672],
+    #     [35.433114752203096, 9.91648206505458],
+    #     [35.16411534741751, 9.829078860164817],
+    #     [35.56761445459588, 9.960183667499463],
+    #     [35.298615049810294, 9.872780462609699],
+    #     [35.25321599983634, 9.783679810190863]
+    # ]
+    
+    points = [
+        [24.009127286461176, 7.319847631297742],
+        [23.382027824471173, 7.190440271492169],
+        [26.12421071241725, 9.047974392055162],
+        [23.296322067110484, 7.68304003108938],
+        [24.099925386409083, 7.498048936135415],
+        [26.08050910997237, 9.182474094447953],
+        [27.464115393757947, 8.814189352069098],
+        [23.47112847689001, 7.145041221518214],
+        [25.1708306629642, 7.176860691259588],
+        [23.42742687444513, 7.279540923911005]
+    ]
+    
+    visualizer.visualize_points(points, point_type="map", show_id=True)
