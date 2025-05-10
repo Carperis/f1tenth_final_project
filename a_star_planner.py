@@ -182,11 +182,15 @@ class AStarPlanner:
             current_index = best_shortcut_index
         return smoothed_path
 
-    def _save_path_to_csv(self, path_to_save_px):
+    def _save_path_to_csv(self, path_to_save_px, idx=None):
+        if idx is not None:
+            output_path_file = self.output_path_file.replace(".csv", f"_{idx}.csv")
+        else:
+            output_path_file = self.output_path_file.replace(".csv", ".csv")
         path_world = np.array([self._pixel_to_world(np.array(p)) for p in path_to_save_px])
         try:
-            np.savetxt(self.output_path_file, path_world, delimiter=';', fmt="%.4f", header="x_m;y_m", comments="")
-            print(f"Saved path to {self.output_path_file}")
+            np.savetxt(output_path_file, path_world, delimiter=';', fmt="%.4f", header="x_m;y_m", comments="")
+            print(f"Saved path to {output_path_file}")
         except Exception as e:
             print(f"Error saving path to CSV: {e}")
 
@@ -238,7 +242,7 @@ class AStarPlanner:
         print(f"Could not find a free point near {pt_px} within radius {max_search_radius_px}")
         return None
 
-    def plan(self, start_world_coords, goal_world_coords, visualize=False, save=False, near=False):
+    def plan(self, start_world_coords, goal_world_coords, visualize=False, save=False, near=False, idx=None):
         self.start_world = np.array(start_world_coords)
         self.goal_world = np.array(goal_world_coords)
         self.start_px = tuple(self._world_to_pixel(self.start_world))
@@ -276,7 +280,7 @@ class AStarPlanner:
             smoothed_path_px = self._smooth_path_shortcut(raw_path_px)
             print(f"Smoothed path length: {len(smoothed_path_px)} points.")
             
-            if save: self._save_path_to_csv(smoothed_path_px)
+            if save: self._save_path_to_csv(smoothed_path_px, idx=idx)
             if visualize: self._visualize_path(smoothed_path_px, original_path_px=raw_path_px, path_found=True)
             print("A* script finished successfully.")
             return raw_path_px, smoothed_path_px
@@ -303,7 +307,7 @@ if __name__ == "__main__":
     # from utils import grid2map_coords
     # goal = grid2map_coords([(1169, 729)])[0]
     
-    raw_path, smoothed_path = planner.plan(start, goal, visualize=True, save=True, near=True)
+    raw_path, smoothed_path = planner.plan(start, goal, visualize=True, save=True, near=True, idx=0)
 
     if smoothed_path:
         print(f"Planning complete. Smoothed path has {len(smoothed_path)} points.")
