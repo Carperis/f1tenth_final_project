@@ -1,4 +1,3 @@
-
 import torch.nn.functional as F
 from scipy.spatial.transform import Rotation as R
 import pandas as pd
@@ -304,3 +303,40 @@ def map2grid_coords(map_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx = 11
     grid_coords_list_int = [[int(round(gx)), int(round(gy))] for gx, gy in grid_coords_list_float]
     
     return grid_coords_list_int
+
+def px2map_coords(px_coords, origin=[2.7, -8.14], resolution=0.05, map_height_px=824):
+    """
+    Converts pixel coordinates (image frame) to map coordinates (world frame).
+    Args:
+        px_coords (list[list[int]]): List of [px, py] pixel coordinates.
+        origin (list[float]): [origin_x, origin_y] of the map in world coordinates.
+        resolution (float): Map resolution (meters per pixel).
+        map_height_px (int): Height of the map in pixels.
+    Returns:
+        list[list[float]]: List of [map_x, map_y] map coordinates.
+    """
+    map_coords_list = []
+    for px, py in px_coords:
+        map_x = origin[0] + px * resolution
+        map_y = origin[1] + (map_height_px - py) * resolution
+        map_coords_list.append([map_x, map_y])
+    return map_coords_list
+
+def map2px_coords(map_coords, origin, resolution, map_height_px):
+    """
+    Converts map coordinates (world frame) to pixel coordinates (image frame).
+    Args:
+        map_coords (list[list[float]]): List of [map_x, map_y] map coordinates.
+        origin (list[float]): [origin_x, origin_y] of the map in world coordinates.
+        resolution (float): Map resolution (meters per pixel).
+        map_height_px (int): Height of the map in pixels.
+    Returns:
+        list[list[int]]: List of [px, py] pixel coordinates.
+    """
+    px_coords_list = []
+    for map_x, map_y in map_coords:
+        px = int(round((map_x - origin[0]) / resolution))
+        py = int(round(map_height_px - (map_y - origin[1]) / resolution))
+        px_coords_list.append([px, py])
+    return px_coords_list
+

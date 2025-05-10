@@ -70,7 +70,8 @@ def find_object_coordinates(
                                Returns an empty list if errors occur or no coordinates match.
     """
     
-    SERVER_URL = "http://10.103.107.67:1234/infer"
+    # SERVER_URL = "http://10.103.107.67:1234/infer"
+    SERVER_URL = "http://127.0.0.1:1234/infer"
     
     def query_location_score_map(location_name):
         """Queries the server for a score map of the given location name."""
@@ -116,19 +117,23 @@ def find_object_coordinates(
 
     # 2. Filter by radius if current_coords_rc and radius are provided and valid
     if current_coords_xy is not None:
-        current_coords_rc = (int(current_coords_xy[1]), int(current_coords_xy[0]))  # (row, col) -> (r, c)
-        if radius is not None and isinstance(radius, (int, float)) and radius >= 0:
+        current_coords_cr = map2grid_coords([current_coords_xy])[0]
+        current_coords_rc = (int(current_coords_cr[1]), int(current_coords_cr[0]))
+        
+        grid_radius = radius / 0.1
+        
+        if grid_radius is not None and isinstance(grid_radius, (int, float)) and grid_radius >= 0:
             curr_r, curr_c = current_coords_rc
             region_filtered_coords = []
             for (r, c), score in coords_rc_with_scores:
                 dist = np.sqrt((r - curr_r)**2 + (c - curr_c)**2)
-                if dist <= radius:
+                if dist <= grid_radius:
                     region_filtered_coords.append(((r, c), score))
             coords_rc_with_scores = region_filtered_coords
-        elif radius is None:
+        elif grid_radius is None:
              print(f"Warning: Regional search for '{obj_name}' requested (current_coords_rc provided) but no radius was given. Skipping regional filter.")
         else: # Invalid radius
-            print(f"Warning: Invalid radius ({radius}) provided for regional search of '{obj_name}'. Regional filter skipped.")
+            print(f"Warning: Invalid radius ({grid_radius}) provided for regional search of '{obj_name}'. Regional filter skipped.")
     
     # 3. Sort by score in descending order
     coords_rc_with_scores.sort(key=lambda item: item[1], reverse=True)
@@ -143,7 +148,8 @@ def find_object_coordinates(
             # final_coords_rc_with_scores remains as all sorted & filtered coords
         
     # 5. Extract coordinates and convert to (x, y) i.e. (col, row)
-    result_coords_xy = [(c, r) for (r, c), score in final_coords_rc_with_scores]
+    result_coords_cr = [[c, r] for (r, c), score in final_coords_rc_with_scores]
+    result_coords_xy = grid2map_coords(result_coords_cr)
     
     return result_coords_xy
 
@@ -170,7 +176,7 @@ if __name__ == "__main__":
     
     location_to_query = "door"
     print(f"Querying server for location: '{location_to_query}'...")
-    result = find_object_coordinates(location_to_query, top_k=5, score_thres=10, current_coords_xy=(729, 1170), radius=10)
+    result = find_object_coordinates(location_to_query, top_k=5, score_thres=10, current_coords_xy=(15.3, 3.7), radius=5)
     if result:
         print(f"{result}")
     else:

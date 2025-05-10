@@ -2,16 +2,16 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import heapq
-import yaml
+import yaml  # Add import for yaml
 
 # === A* Node ===
 class Node:
     def __init__(self, pt, parent=None, g=0, h=0):
-        self.pt = pt
+        self.pt = pt          # Tuple (x, y)
         self.parent = parent
-        self.g = g
-        self.h = h
-        self.f = g + h
+        self.g = g            # Cost from start to current node
+        self.h = h            # Heuristic cost from current node to goal
+        self.f = g + h        # Total cost
 
     def __lt__(self, other):
         if self.f == other.f:
@@ -25,7 +25,7 @@ class Node:
         return hash(self.pt)
 
 class AStarPlanner:
-    def __init__(self, map_file, output_path_file, map_yaml_file,
+    def __init__(self, map_file, output_path_file, map_yaml_file, 
                  clearance_radius_m=0.1):
         self.map_file = map_file
         self.output_path_file = output_path_file
@@ -37,21 +37,24 @@ class AStarPlanner:
         self.width = 0
         self.binary_map = None
         self.planning_map = None
-
+        
         self.start_px = None
         self.goal_px = None
         self.start_world = None
         self.goal_world = None
-        self.resolution = 0
-        self.origin = np.array([0.0, 0.0])
-        self.grid_clearance_radius = 0
+        self.resolution = 0  # Initialize resolution
+        self.origin = np.array([0.0, 0.0]) # Initialize origin
+        self.grid_clearance_radius = 0 # Initialize grid clearance radius
 
         self._read_map_config_from_yaml()
-
+        
+        # Calculate grid clearance radius after resolution is known
         if self.resolution > 0:
             self.grid_clearance_radius = int(self.clearance_radius_m / self.resolution)
-        else:
+        elif self.clearance_radius_m > 0: # Only warn if a non-zero clearance was intended
+            print(f"Warning: Map resolution is {self.resolution}. Grid clearance cannot be accurately calculated and defaults to 0px.")
             self.grid_clearance_radius = 0
+        # If clearance_radius_m is 0, grid_clearance_radius remains 0, no warning needed.
 
         self._load_map_and_create_planning_map()
 
@@ -60,20 +63,28 @@ class AStarPlanner:
             map_config = yaml.safe_load(f)
         self.origin = np.array(map_config['origin'][:2])
         self.resolution = map_config['resolution']
+        print(f"Origin set from YAML: {self.origin}")
+        print(f"Resolution set from YAML: {self.resolution}")
 
     def _load_map_and_create_planning_map(self):
+        # Load map
         self.map_img = cv2.imread(self.map_file, cv2.IMREAD_GRAYSCALE)
+        if self.map_img is None:
+            raise FileNotFoundError(f"Map file not found or could not be read: {self.map_file}")
         self.height, self.width = self.map_img.shape
-        self.binary_map = (self.map_img > 250).astype(np.uint8)
+        self.binary_map = (self.map_img > 250).astype(np.uint8)  # 1 for free, 0 for obstacle
 
+        # Create planning map with clearance using self.grid_clearance_radius
         if self.grid_clearance_radius > 0:
             obstacle_mask = 1 - self.binary_map
             kernel_size = 2 * self.grid_clearance_radius + 1
             kernel = np.ones((kernel_size, kernel_size), np.uint8)
             dilated_obstacle_mask = cv2.dilate(obstacle_mask, kernel, iterations=1)
             self.planning_map = 1 - dilated_obstacle_mask
+            print(f"Applied clearance of {self.clearance_radius_m}m ({self.grid_clearance_radius}px).")
         else:
             self.planning_map = self.binary_map
+            print("Clearance radius is 0 or results in 0 pixels, using original binary map.")
 
     def _world_to_pixel(self, pt):
         px = int((pt[0] - self.origin[0]) / self.resolution)
@@ -186,8 +197,12 @@ class AStarPlanner:
         if idx is not None:
             output_path_file = self.output_path_file.replace(".csv", f"_{idx}.csv")
         else:
-            output_path_file = self.output_path_file
-        np.savetxt(output_path_file, path_world, delimiter=';', fmt="%.4f", header="x_m;y_m", comments="")
+            output_path_file = self.output_path_file.replace(".csv", ".csv")
+        try:
+            np.savetxt(output_path_file, path_world, delimiter=';', fmt="%.4f", header="x_m;y_m", comments="")
+            print(f"Saved path to {output_path_file}")
+        except Exception as e:
+            print(f"Error saving path to CSV: {e}")
 
     def _visualize_path(self, path_to_visualize_px, original_path_px=None, path_found=True, save=False, idx=None):
         plt.figure()
@@ -208,7 +223,7 @@ class AStarPlanner:
 
         plt.plot(self.start_px[0], self.start_px[1], 'go', markersize=8, label=f"Start_px {self.start_px}")
         plt.plot(self.goal_px[0], self.goal_px[1], 'ro', markersize=8, label=f"Goal_px {self.goal_px}")
-
+        
         plt.legend()
         plt.title(title)
         plt.xlabel("X (pixels)")
@@ -216,27 +231,36 @@ class AStarPlanner:
         plt.axis('equal')
         plt.grid(True, linestyle='--', alpha=0.5)
 
-        if save:
+        if save: # Check if we need to save the plot
             if idx is not None:
                 plot_filename = self.output_path_file.replace(".csv", f"_{idx}.png")
             else:
                 plot_filename = self.output_path_file.replace(".csv", ".png")
-            plt.savefig(plot_filename)
-
+            try:
+                plt.savefig(plot_filename)
+                print(f"Saved plot to {plot_filename}")
+            except Exception as e:
+                print(f"Error saving plot: {e}")
+        
         plt.show()
 
     def _find_nearest_free_point(self, pt_px, max_search_radius_px=10):
+        """Searches for the nearest free point around pt_px within max_search_radius_px."""
         if self._is_valid_and_free(pt_px):
-            return pt_px
+            return pt_px  # Original point is already free
 
         for r in range(1, max_search_radius_px + 1):
             for dy in range(-r, r + 1):
                 for dx in range(-r, r + 1):
+                    # Consider only points on the perimeter of the current search square
                     if abs(dx) != r and abs(dy) != r:
                         continue
+                    
                     search_pt = (pt_px[0] + dx, pt_px[1] + dy)
                     if self._is_valid_and_free(search_pt):
+                        print(f"Found alternative free goal {search_pt} near original goal {pt_px}")
                         return search_pt
+        print(f"Could not find a free point near {pt_px} within radius {max_search_radius_px}")
         return None
 
     def plan(self, start_world_coords, goal_world_coords, visualize=False, save=False, near=False, idx=None):
@@ -246,18 +270,25 @@ class AStarPlanner:
         original_goal_px = tuple(self._world_to_pixel(self.goal_world))
         self.goal_px = original_goal_px
 
+        print(f"Starting A* from pixel {self.start_px} (world: {self.start_world}) to pixel {self.goal_px} (world: {self.goal_world})")
+        
         if not self._is_valid_and_free(self.start_px):
+            print(f"Start point {self.start_px} (world: {self.start_world}) is not valid or is in an obstacle on the planning map.")
             if visualize: self._visualize_path(None, path_found=False, save=save, idx=idx)
             return None, None
-
+        
         if not self._is_valid_and_free(self.goal_px):
+            print(f"Goal point {self.goal_px} (world: {self.goal_world}) is not valid or is in an obstacle on the planning map.")
             if near:
+                print(f"Attempting to find a nearby free goal for {self.goal_px}...")
                 new_goal_px = self._find_nearest_free_point(self.goal_px)
                 if new_goal_px:
                     self.goal_px = new_goal_px
                     self.goal_world = self._pixel_to_world(np.array(new_goal_px))
+                    print(f"Using alternative goal pixel {self.goal_px} (world: {self.goal_world})")
                 else:
-                    if visualize: self._visualize_path(None, path_found=False, save=save, idx=idx)
+                    print(f"Could not find a suitable alternative goal near {original_goal_px}.")
+                    if visualize: self._visualize_path(None, path_found=False, save=save, idx=idx) # Visualize with original goal marked
                     return None, None
             else:
                 if visualize: self._visualize_path(None, path_found=False, save=save, idx=idx)
@@ -267,18 +298,24 @@ class AStarPlanner:
         raw_path_world = [self._pixel_to_world(np.array(p)) for p in raw_path_px] if raw_path_px else None
 
         if raw_path_px:
+            print(f"Path found by A*! Original length: {len(raw_path_px)} points.")
             smoothed_path_px = self._smooth_path_shortcut(raw_path_px)
             smoothed_path_world = [self._pixel_to_world(np.array(p)) for p in smoothed_path_px]
-
+            print(f"Smoothed path length: {len(smoothed_path_px)} points.")
+            
             if save: self._save_path_to_csv(smoothed_path_world, idx=idx)
             if visualize: self._visualize_path(smoothed_path_px, original_path_px=raw_path_px, path_found=True, save=save, idx=idx)
+            print("A* script finished successfully.")
             return raw_path_world, smoothed_path_world
         else:
-            if visualize: self._visualize_path(None, path_found=False, save=save, idx=idx)
+            print(f"Failed to find path with A* from {self.start_px} to {self.goal_px}.")
+            if visualize: self._visualize_path(None, path_found=False, save=save, idx=idx) # Also pass save and idx here
+            print("A* script finished with failure.")
             return None, None
 
 # === Main execution ===
 if __name__ == "__main__":
+
     planner = AStarPlanner(
         map_file="/Users/sam/Desktop/Codes/projects_robotics/f1tenth_final_project/maps/map.pgm",
         output_path_file="/Users/sam/Desktop/Codes/projects_robotics/f1tenth_final_project/a_star_path.csv",
@@ -286,9 +323,16 @@ if __name__ == "__main__":
         clearance_radius_m=0.4
     )
 
-    start = (6, 3)
+    # Define start and goal world coordinates for planning
+    start = (9.75 + planner.origin[0], 11.1 + planner.origin[1])
+    # goal = (52.9, 17.8)
     
     from utils import grid2map_coords
     goal = grid2map_coords([(1169, 729)])[0]
     
-    planner.plan(start, goal, visualize=True, save=True, near=True, idx=0)
+    raw_path, smoothed_path = planner.plan(start, goal, visualize=True, save=True, near=True, idx=0)
+
+    if smoothed_path:
+        print(f"Planning complete. Smoothed path has {len(smoothed_path)} points.")
+    else:
+        print("Planning failed.")
