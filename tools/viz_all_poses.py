@@ -160,6 +160,8 @@ def main(pose_file, pitch_deg, output_video, axis_length=1.0, interval=50): # De
 
 
 if __name__ == "__main__":
+    # python viz_all_poses.py path/to/pose_file.csv --pitch 0.0 --output pose_visualization.mp4 --length 2.0 --interval 50
+    
     parser = argparse.ArgumentParser(description="Visualize camera poses from a CSV file as a video.")
     parser.add_argument("pose_file", help="Path to the CSV file containing poses (x, y, z, qx, qy, qz, qw per row).")
     parser.add_argument("--pitch", type=float, default=0.0, help="Pitch angle correction in degrees (default: 0.0).")

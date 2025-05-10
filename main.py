@@ -56,7 +56,7 @@ class RobotController:
                     
                     send_success = False
                     while not send_success:
-                        send_success = self.comm.send_trajectory_from_list(smoothed_path, is_grid=False)
+                        send_success = self.comm.send_trajectory_from_list(smoothed_path)
                         if send_success:
                             print(f"Path to goal {goal_pos} sent.")
                             self.current_car_position = self._wait_for_goal_arrival(goal_pos)

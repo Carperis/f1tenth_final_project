@@ -280,9 +280,9 @@ class AStarPlanner:
 # === Main execution ===
 if __name__ == "__main__":
     planner = AStarPlanner(
-        map_file="/Users/sam/Desktop/Codes/projects_robotics/f1tenth_final_project/maps/map.pgm",
-        output_path_file="/Users/sam/Desktop/Codes/projects_robotics/f1tenth_final_project/a_star_path.csv",
-        map_yaml_file="/Users/sam/Desktop/Codes/projects_robotics/f1tenth_final_project/maps/map.yaml",
+        map_file="./maps/map.pgm",
+        output_path_file="path.csv",
+        map_yaml_file="./maps/map.yaml",
         clearance_radius_m=0.4
     )
 

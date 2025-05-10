@@ -119,9 +119,9 @@ def find_top_k_points(prompt_text, k, lang_list, all_scores, original_predicts_s
     return top_k_coords
 
 
-color_top_down_path = "color_top_down.npy"
-lseg_map_path = "lseg_map.npy"
-obstacles_path = "obstacles.npy"
+color_top_down_path = "./maps/color_top_down.npy"
+lseg_map_path = "./maps/lseg_map.npy"
+obstacles_path = "./maps/obstacles.npy"
 
 color_top_down = load_map(color_top_down_path)
 lseg_map = load_map(lseg_map_path)

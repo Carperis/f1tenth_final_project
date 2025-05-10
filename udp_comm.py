@@ -67,7 +67,7 @@ class UDPComm:
         map_points = grid2map_coords(float_points) if is_grid else float_points
         return self._send_points_list(map_points)
 
-    def send_trajectory_from_list(self, coords_list, is_grid=True):
+    def send_trajectory_from_list(self, coords_list, is_grid=False):
         """
         Sends trajectory from a list of coordinates.
         coords_list: A list of [x,y].
@@ -88,7 +88,7 @@ class UDPComm:
         
         decoded_data = data.decode().strip()
 
-        if decoded_data.lower() == "none,none" or not decoded_data:
+        if decoded_data.lower() == "None,None" or not decoded_data:
             return None
         
         parts = decoded_data.split(',')

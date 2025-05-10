@@ -189,7 +189,7 @@ def load_map(load_path):
     return map
 
 
-def grid2map_coords(grid_coords, gs=2000, cs=0.1, angle_degrees=63, tx=11, ty=8, tz=0.0):
+def grid2map_coords(grid_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx = 11, ty = 8, tz = 0.0):
 # def grid2map_coords(grid_coords, gs=2000, cs=0.1, angle_degrees=63, tx=11 - 2.7, ty=8 + 8.14, tz=0.0):
     """
     Converts grid coordinates to map coordinates.
@@ -304,7 +304,7 @@ def map2grid_coords(map_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx = 11
     
     return grid_coords_list_int
 
-def px2map_coords(px_coords, origin=[2.7, -8.14], resolution=0.05, map_height_px=824):
+def px2map_coords(px_coords, origin = [2.7, -8.14], resolution = 0.05, map_height_px = 824):
     """
     Converts pixel coordinates (image frame) to map coordinates (world frame).
     Args:
@@ -322,7 +322,7 @@ def px2map_coords(px_coords, origin=[2.7, -8.14], resolution=0.05, map_height_px
         map_coords_list.append([map_x, map_y])
     return map_coords_list
 
-def map2px_coords(map_coords, origin, resolution, map_height_px):
+def map2px_coords(map_coords, origin = [2.7, -8.14], resolution = 0.05, map_height_px = 824):
     """
     Converts map coordinates (world frame) to pixel coordinates (image frame).
     Args:
