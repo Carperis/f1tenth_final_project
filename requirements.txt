@@ -13,7 +13,7 @@ timm
 matplotlib
 wandb
 h5py
-openai==0.8.0
+openai
 grad-cam
 ultralytics
 open3d

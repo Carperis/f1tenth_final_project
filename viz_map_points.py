@@ -62,4 +62,8 @@ if __name__ == '__main__':
     # map_points = grid2map_coords(grid_points)
     # points = map2px_coords(map_points)
     
-    visualizer.visualize_points(points, point_label="Detected Features")
+    points = [[6,3],[6,4]]
+    points = map2grid_coords(points)
+    print(points)
+    
+    visualizer.visualize_points(points, point_type="grid")
