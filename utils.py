@@ -3,6 +3,7 @@ from scipy.spatial.transform import Rotation as R
 import pandas as pd
 import numpy as np
 from PIL import Image
+from typing import List
 
 import matplotlib.patches as mpatches
 
@@ -144,7 +145,7 @@ def get_new_pallete(num_cls):
     n = num_cls
     pallete = [0] * (n * 3)
 
-    for j in range(0, n):
+    for j in 0, n:
         lab = j
         pallete[j * 3 + 0] = 0
         pallete[j * 3 + 1] = 0
@@ -189,12 +190,11 @@ def load_map(load_path):
     return map
 
 
-def grid2map_coords(grid_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx = 11, ty = 8, tz = 0.0):
-# def grid2map_coords(grid_coords, gs=2000, cs=0.1, angle_degrees=63, tx=11 - 2.7, ty=8 + 8.14, tz=0.0):
+def grid2map_coords(grid_coords: List[List[int]], gs = 2000, cs = 0.1, angle_degrees = 63, tx = 11, ty = 8, tz = 0.0) -> List[List[float]]:
     """
-    Converts grid coordinates to map coordinates.
+    Converts grid coordinates (list of lists) to map coordinates (list of lists).
     Args:
-        grid_coords: A list of [gx, gy] integer grid coordinates.
+        grid_coords (List[List[int]]): A list of [gx, gy] integer grid coordinates.
         gs (int): Grid size.
         cs (float): Cell size or scaling factor.
         angle_degrees (float): Rotation angle in degrees.
@@ -202,17 +202,25 @@ def grid2map_coords(grid_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx = 1
         ty (float): Translation in Y.
         tz (float, optional): Translation in Z. Defaults to 0.0.
     Returns:
-        A list of [mx, my] float map coordinates.
+        List[List[float]]: A list of [mx, my] float map coordinates.
     """
+    if not grid_coords:
+        return []
+    grid_coords_array = np.array(grid_coords, dtype=float) # Use float for calculations involving cs
+
+    if grid_coords_array.shape[0] == 0:
+        return []
+
     # Apply scaling and centering
-    scaled_points = [[cs * (gx - gs / 2), cs * (gy - gs / 2)] for gx, gy in grid_coords]
+    # Assuming grid_coords_array columns are [gx, gy] or [r, c]
+    scaled_x = cs * (grid_coords_array[:, 0] - gs / 2.0)
+    scaled_y = cs * (grid_coords_array[:, 1] - gs / 2.0)
+    scaled_points_array = np.vstack((scaled_x, scaled_y)).T # Shape (N, 2)
     
-    # Transformation logic (from transform_points)
     angle_radians = np.deg2rad(angle_degrees)
     cos_theta = np.cos(angle_radians)
     sin_theta = np.sin(angle_radians)
 
-    # Create the 4x4 transformation matrix
     transform_matrix = np.array([
         [cos_theta,  sin_theta, 0,  0],
         [-sin_theta, cos_theta, 0,  0],
@@ -220,38 +228,36 @@ def grid2map_coords(grid_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx = 1
         [tx,         ty,        tz, 1]
     ])
 
-    # Convert scaled_points to a NumPy array
-    points_array = np.array(scaled_points)
+    num_points = scaled_points_array.shape[0]
+    homogeneous_points = np.hstack((scaled_points_array, np.zeros((num_points, 1)), np.ones((num_points, 1))))
     
-    # Create homogeneous coordinates: add a z-column (all zeros) and a w-column (all ones)
-    num_points = points_array.shape[0]
-    homogeneous_points = np.hstack((points_array, np.zeros((num_points, 1)), np.ones((num_points, 1))))
-    
-    # Apply the transformation to all points at once
     transformed_homogeneous_points = homogeneous_points @ transform_matrix
     
-    # Convert back to 2D [x', y'] by taking the first two columns
-    map_coords = transformed_homogeneous_points[:, :2].tolist()
+    map_coords_array = transformed_homogeneous_points[:, :2]
     
-    return map_coords
+    return map_coords_array.tolist()
 
-def map2grid_coords(map_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx = 11, ty = 8, tz = 0.0):
-# def map2grid_coords(map_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx=11 - 2.7, ty=8 + 8.14, tz = 0.0):
+def map2grid_coords(map_coords: List[List[float]], gs = 2000, cs = 0.1, angle_degrees = 63, tx = 11, ty = 8, tz = 0.0) -> List[List[int]]:
     """
-    Converts map coordinates back to grid coordinates.
-    This is the inverse of grid2map_coords.
+    Converts map coordinates back to grid coordinates. Vectorized internally.
     Args:
-        map_coords (list[list[float]]): A list of [mx, my] float map coordinates.
+        map_coords (List[List[float]]): A list of [mx, my] float map coordinates.
         gs (int): Grid size.
         cs (float): Cell size or scaling factor.
-        angle_degrees (float): Rotation angle in degrees (used in the forward transform).
-        tx (float): Translation in X (used in the forward transform).
-        ty (float): Translation in Y (used in the forward transform).
-        tz (float, optional): Translation in Z (used in the forward transform). Defaults to 0.0.
+        angle_degrees (float): Rotation angle in degrees.
+        tx (float): Translation in X.
+        ty (float): Translation in Y.
+        tz (float, optional): Translation in Z. Defaults to 0.0.
     Returns:
-        list[list[int]]: A list of [gx, gy] integer grid coordinates.
+        List[List[int]]: A list of [gx, gy] integer grid coordinates.
     """
-    # 1. Construct the forward transformation matrix T (same as in grid2map_coords)
+    if not map_coords:
+        return []
+        
+    map_points_array = np.array(map_coords, dtype=float)
+    if map_points_array.shape[0] == 0:
+        return []
+
     angle_radians = np.deg2rad(angle_degrees)
     cos_theta = np.cos(angle_radians)
     sin_theta = np.sin(angle_radians)
@@ -263,80 +269,72 @@ def map2grid_coords(map_coords, gs = 2000, cs = 0.1, angle_degrees = 63, tx = 11
         [tx,         ty,        tz, 1]
     ])
 
-    # 2. Calculate the inverse transformation matrix T_inv
     try:
         transform_matrix_inv = np.linalg.inv(transform_matrix_fwd)
     except np.linalg.LinAlgError:
         raise ValueError("Transformation matrix is singular and cannot be inverted.")
 
-    # 3. Prepare map_coords for inverse transformation
-    map_points_array = np.array(map_coords)
     num_points = map_points_array.shape[0]
-    
-    # Homogeneous coordinates for map points are [mx, my, tz_forward, 1]
-    # because the forward transform results in z_transformed = original_z (0) + tz = tz
     map_homogeneous_points = np.hstack((
         map_points_array,
-        np.full((num_points, 1), tz), # Use tz from the forward transform for the z-component
+        np.full((num_points, 1), tz),
         np.ones((num_points, 1))
     ))
-
-    # 4. Apply the inverse transformation to get scaled_homogeneous_points
-    # P_scaled_h = P_map_h @ T_inv
-    # This should result in [xs, ys, 0, 1]
+    
     scaled_homogeneous_points = map_homogeneous_points @ transform_matrix_inv
-
-    # Extract scaled 2D points [x_scaled, y_scaled]
     scaled_points_array = scaled_homogeneous_points[:, :2]
 
-    # 5. Reverse scaling and centering
-    # x_scaled = cs * (gx - gs / 2)  => gx = (x_scaled / cs) + (gs / 2)
-    # y_scaled = cs * (gy - gs / 2)  => gy = (y_scaled / cs) + (gs / 2)
+    gx_all = (scaled_points_array[:, 0] / cs) + (gs / 2.0)
+    gy_all = (scaled_points_array[:, 1] / cs) + (gs / 2.0)
     
-    grid_coords_list_float = []
-    for x_scaled, y_scaled in scaled_points_array:
-        gx = (x_scaled / cs) + (gs / 2.0)
-        gy = (y_scaled / cs) + (gs / 2.0)
-        grid_coords_list_float.append([gx, gy])
-
-    # 6. Convert to integer grid coordinates by rounding
-    grid_coords_list_int = [[int(round(gx)), int(round(gy))] for gx, gy in grid_coords_list_float]
+    grid_coords_float_array = np.vstack((gx_all, gy_all)).T
+    grid_coords_int_array = np.round(grid_coords_float_array).astype(int)
     
-    return grid_coords_list_int
+    return grid_coords_int_array.tolist()
 
-def px2map_coords(px_coords, origin = [2.7, -8.14], resolution = 0.05, map_height_px = 824):
+def px2map_coords(px_coords: List[List[int]], origin = [2.7, -8.14], resolution = 0.05, map_height_px = 824) -> List[List[float]]:
     """
-    Converts pixel coordinates (image frame) to map coordinates (world frame).
+    Converts pixel coordinates (list of lists, image frame) to map coordinates (list of lists, world frame).
     Args:
-        px_coords (list[list[int]]): List of [px, py] pixel coordinates.
+        px_coords (List[List[int]]): List of [px, py] pixel coordinates.
         origin (list[float]): [origin_x, origin_y] of the map in world coordinates.
         resolution (float): Map resolution (meters per pixel).
         map_height_px (int): Height of the map in pixels.
     Returns:
-        list[list[float]]: List of [map_x, map_y] map coordinates.
+        List[List[float]]: List of [map_x, map_y] map coordinates.
     """
-    map_coords_list = []
-    for px, py in px_coords:
-        map_x = origin[0] + px * resolution
-        map_y = origin[1] + (map_height_px - py) * resolution
-        map_coords_list.append([map_x, map_y])
-    return map_coords_list
+    if not px_coords:
+        return []
+    px_coords_array = np.array(px_coords, dtype=float)
 
-def map2px_coords(map_coords, origin = [2.7, -8.14], resolution = 0.05, map_height_px = 824):
+    if px_coords_array.shape[0] == 0:
+        return []
+
+    origin_arr = np.array(origin)
+    map_x = origin_arr[0] + px_coords_array[:, 0] * resolution
+    map_y = origin_arr[1] + (map_height_px - px_coords_array[:, 1]) * resolution
+    return np.vstack((map_x, map_y)).T.tolist()
+
+def map2px_coords(map_coords: List[List[float]], origin = [2.7, -8.14], resolution = 0.05, map_height_px = 824) -> List[List[float]]:
     """
-    Converts map coordinates (world frame) to pixel coordinates (image frame).
+    Converts map coordinates (list of lists, world frame) to raw pixel coordinates (list of lists, image frame).
     Args:
-        map_coords (list[list[float]]): List of [map_x, map_y] map coordinates.
+        map_coords (List[List[float]]): List of [map_x, map_y] map coordinates.
         origin (list[float]): [origin_x, origin_y] of the map in world coordinates.
         resolution (float): Map resolution (meters per pixel).
         map_height_px (int): Height of the map in pixels.
     Returns:
-        list[list[int]]: List of [px, py] pixel coordinates.
+        List[List[float]]: List of [px_raw, py_raw] raw pixel coordinates (float).
     """
-    px_coords_list = []
-    for map_x, map_y in map_coords:
-        px = int(round((map_x - origin[0]) / resolution))
-        py = int(round(map_height_px - (map_y - origin[1]) / resolution))
-        px_coords_list.append([px, py])
-    return px_coords_list
+    if not map_coords:
+        return []
+    map_coords_array = np.array(map_coords, dtype=float)
+        
+    if map_coords_array.shape[0] == 0:
+        return []
+        
+    origin_arr = np.array(origin)
+    px_raw = (map_coords_array[:, 0] - origin_arr[0]) / resolution
+    py_raw = map_height_px - (map_coords_array[:, 1] - origin_arr[1]) / resolution
+    return np.vstack((px_raw, py_raw)).T.tolist()
 

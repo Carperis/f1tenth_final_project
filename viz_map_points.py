@@ -1,7 +1,7 @@
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from utils import map2px_coords, grid2map_coords
+from utils import map2px_coords, grid2map_coords, map2grid_coords, px2map_coords
 
 class PointVisualizer:
     def __init__(self, map_file):
@@ -10,7 +10,15 @@ class PointVisualizer:
         if self.map_img is None:
             raise FileNotFoundError(f"Could not read map image from {self.map_file}")
 
-    def visualize_points(self, points_to_visualize_px, save_filepath=None, point_label="Points"):
+    def visualize_points(self, points_to_visualize_px, save_filepath=None, point_label="Points", point_type="px"):
+        
+        assert point_type in ["px", "map", "grid"], "point_type must be 'px', 'map', or 'grid'"
+        if point_type == "map":
+            points_to_visualize_px = map2px_coords(points_to_visualize_px)
+        elif point_type == "grid":
+            points_to_visualize_px = grid2map_coords(points_to_visualize_px)
+            points_to_visualize_px = map2px_coords(points_to_visualize_px)
+        
         plt.figure()
         plt.imshow(self.map_img, cmap='gray')
 
