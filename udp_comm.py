@@ -4,15 +4,16 @@ import time
 from utils import grid2map_coords, map2grid_coords
 import os # Added for os.path.exists
 
-DEFAULT_JETSON_NANO_IP_ADDRESS = "10.103.86.254" # Default IP, can be overridden
+DEFAULT_JETSON_NANO_IP_ADDRESS = "10.103.74.128" # Default IP, can be overridden
 DEFAULT_UDP_PORT = 5005
 
 class UDPComm:
-    def __init__(self, udp_ip=DEFAULT_JETSON_NANO_IP_ADDRESS, udp_port=DEFAULT_UDP_PORT, timeout=5.0):
+    def __init__(self, udp_ip=DEFAULT_JETSON_NANO_IP_ADDRESS, udp_port=DEFAULT_UDP_PORT, timeout=10.0, period=0.1):
         self.udp_ip = udp_ip
         self.udp_port = udp_port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.timeout = timeout # Timeout for receiving data
+        self.period = period # Period for sending data
 
     def _send_points_list(self, points_list):
         """Helper function to send a list of (x,y) float points."""
@@ -23,7 +24,7 @@ class UDPComm:
                 line = f"{x:.2f},{y:.2f}"
                 self.sock.sendto(line.encode(), (self.udp_ip, self.udp_port))
                 # print(f"Sent: {line}") # Optional: for debugging
-                time.sleep(1)  # Small delay, adjust if necessary
+                time.sleep(self.period)
             self.sock.sendto(b"__END__", (self.udp_ip, self.udp_port))
             print("Finished sending points.")
             return True
@@ -171,25 +172,25 @@ if __name__ == '__main__':
     else:
         print(f"Test CSV file '{test_csv_path}' not found. Skipping CSV send test.")
 
-    print("\n--- Testing send_trajectory_from_list (is_grid=True) ---")
-    raw_points_list = [(1169, 729), (1005, 934), (986, 925), (1049, 841), (1170, 729)]
-    success_list = comm.send_trajectory_from_list(raw_points_list, is_grid=True)
-    print(f"List send success: {success_list}")
+    # print("\n--- Testing send_trajectory_from_list (is_grid=True) ---")
+    # raw_points_list = [(1169, 729), (1005, 934), (986, 925), (1049, 841), (1170, 729)]
+    # success_list = comm.send_trajectory_from_list(raw_points_list, is_grid=True)
+    # print(f"List send success: {success_list}")
     
-    print("\n--- Testing send_trajectory_from_list (is_grid=False) ---")
-    map_points_list = grid2map_coords(raw_points_list)
-    success_list_map = comm.send_trajectory_from_list(map_points_list, is_grid=False)
-    print(f"List send (map coords) success: {success_list_map}")
+    # print("\n--- Testing send_trajectory_from_list (is_grid=False) ---")
+    # map_points_list = grid2map_coords(raw_points_list)
+    # success_list_map = comm.send_trajectory_from_list(map_points_list, is_grid=False)
+    # print(f"List send (map coords) success: {success_list_map}")
 
-    print("\n--- Testing get_car_position ---")
-    # This part requires a server to be running and sending back a response
-    # To test this, you'd need a simple UDP server listening on 127.0.0.1:5005
-    # that responds to "__POSE__" with "x,y"
-    position = comm.get_car_position()
-    if position:
-        print(f"Received car position: {position}")
-    else:
-        print("Failed to get car position or position was None.")
+    # print("\n--- Testing get_car_position ---")
+    # # This part requires a server to be running and sending back a response
+    # # To test this, you'd need a simple UDP server listening on 127.0.0.1:5005
+    # # that responds to "__POSE__" with "x,y"
+    # position = comm.get_car_position()
+    # if position:
+    #     print(f"Received car position: {position}")
+    # else:
+    #     print("Failed to get car position or position was None.")
 
     # Clean up
     comm.close_socket()

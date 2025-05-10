@@ -298,13 +298,11 @@ if __name__ == "__main__":
 
     # Define start and goal world coordinates for planning
     start = (9.75 + planner.origin[0], 11.1 + planner.origin[1])
-    # goal = (50.1 + planner.origin[0], 26.4 + planner.origin[1])
-    # start = (9.75, 11.1)
-    # goal = (50.1, 26.4)
+    goal = (52.9, 17.8)
     
-    from utils import grid2map_coords
-    goal = grid2map_coords([(1169, 729)])[0]
-
+    # from utils import grid2map_coords
+    # goal = grid2map_coords([(1169, 729)])[0]
+    
     raw_path, smoothed_path = planner.plan(start, goal, visualize=True, save=True, near=True)
 
     if smoothed_path:
