@@ -90,7 +90,7 @@ if __name__ == "__main__":
     pgm_file = "./maps/map.pgm"
     yaml_file = "./maps/map.yaml"
     clearance = 0.4
-    udp_ip = "10.103.68.60"
+    udp_ip = "10.103.87.204"
 
     planner = AStarPlanner(
         map_file=pgm_file,
@@ -101,7 +101,7 @@ if __name__ == "__main__":
 
     comm = UDPComm(
         udp_ip=udp_ip,
-        timeout=30,
+        timeout=300,
     )
 
     controller = RobotController(

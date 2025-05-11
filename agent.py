@@ -84,8 +84,8 @@ Your Primary Tool: `find_multiple_objects`
 
 Tool Arguments for `find_multiple_objects`:
 - `obj_names`: List[str]. Names of objects to search (e.g., ["chair", "desk"]). REQUIRED. Min 1 item.
-- `ref_pos`: Optional[List[float]]. Reference [x_map, y_map] position for search (e.g., [10.0, 20.5]). If None, the function will do a global search.
-- `radius`: Optional[float]. Search radius around `ref_pos`.
+- `ref_pos`: Optional[List[float]]. Reference [x_map, y_map] position for search, **in meters** (e.g., [10.0, 20.5]). If None, the function will do a global search.
+- `radius`: Optional[float]. Search radius around `ref_pos`, **in meters**.
 - `top_k`: Optional[int]. Max results per object.
 - `score_thres`: float. Minimum score (e.g., 0.1 for confidence, 0.0 for max recall). REQUIRED.
 - `mask`: bool. Filter by obstacle map (default True).
@@ -93,15 +93,19 @@ Tool Arguments for `find_multiple_objects`:
 - `dist_thres`: Optional[float]. Distance threshold for DBSCAN. Used if `cluster` is True.
 
 Tool Output (`find_multiple_objects`):
-- A dictionary: Keys are object names (str). Values are a tuple: (list of [x,y] coordinates, list of scores).
-Example: `{{"chair": ([[120.0, 250.0], [125.0, 252.0]], [0.9, 0.85]), "desk": ([[130.0, 260.0]], [0.95])}}`
+- A dictionary: Keys are object names (str). Values are a tuple: (list of [x,y] coordinates **(in meters)**, list of scores).
+Example: `{{"chair": ([[1.20, 2.50], [1.25, 2.52]], [0.9, 0.85]), "desk": ([[1.30, 2.60]], [0.95])}}` (Note: example coordinates are in meters)
 
 Your Multi-Step Reasoning Process for Pick-and-Place Task Planning:
 1.  **Understand & Decompose Goal**:
-    *   Analyze the user's overall goal (e.g., "Set up a meeting for two people," "Deliver item A to location B").
+    *   Analyze the user's overall goal (e.g., "Set up a meeting for two people," "Deliver item A to location B"). The user's goal string might also contain their current location (e.g., "My current location is (x, y)", "I am at (x,y)").
     *   Break it down into a sequence of pick-and-place subgoals. Each subgoal typically involves one pick action and one place action.
     *   Example for "Set up a meeting for two people":
-        1.  Identify the primary reference for placement: Locate a 'table'. Let its coordinate be `T_ref`. This should typically be a **global search** (call `find_multiple_objects` with `ref_pos=None`) to find the most suitable table in the environment. This establishes the main anchor for subsequent placements.
+        1.  Identify the primary reference for placement: Locate a 'table'. Let its coordinate be `T_ref`.
+            *   **Check the user's input goal for a current location.** If provided (e.g., "current location is (X, Y)"), use this [X, Y] (in meters) as the `ref_pos` for the initial search for the 'table'. **Crucially, if `ref_pos` is used, you MUST also provide a `radius` (in meters) for this search** (e.g., a reasonable value like 1.0 or 2.0 meters, or use a suggested radius if provided).
+            *   **If no current location is explicitly mentioned in the user's input goal, perform a global search** for the 'table' by calling `find_multiple_objects` with `ref_pos=None` (in this case, `radius` is not applicable or ignored).
+            *   This `T_ref` establishes the main anchor for subsequent placements.
+            *   **Retry Logic**: If the initial search (from current location or global) with the suggested `score_thres` yields no results for a critical reference object like 'table', and the threshold was relatively high (e.g. > 0.5), try again with a lower `score_thres` (e.g., 0.3 or 0.1) before concluding it's not found.
         2.  For the first item (Chair1):
             a.  Determine `C1_place` (placement coordinate for Chair1) relative to `T_ref`. This is a calculation, not a search.
             b.  Locate Chair1 (object to pick). Call `find_multiple_objects` to find 'chair', ideally searching from `C1_place` (i.e., `ref_pos=C1_place`). This gives `C1_pick`.
@@ -113,8 +117,7 @@ Your Multi-Step Reasoning Process for Pick-and-Place Task Planning:
     a.  For each item that needs to be picked and placed (e.g., for Chair1, then for Chair2):
         i.  **Determine the PLACE Coordinate (`P_coord`)**:
             *   If the target placement location for this specific item is explicitly defined by the user (e.g., "place item X at [x,y]"), use that as `P_coord`.
-            *   If the placement is relative to a **common reference object** (e.g., placing multiple chairs around the *same* 'table' that was already found as `T_ref`):
-                *   Calculate the specific `P_coord` for the *current item* relative to `T_ref` (e.g., Chair1_place_coord might be 0.5m north of `T_ref`; Chair2_place_coord might be 0.5m east of `T_ref`). This step does not require a new tool call if `T_ref` is known.
+            *   If the placement is relative to a **common reference object** (e.g., placing multiple chairs to the *same* 'table' that was already found as `T_ref`), use `T_ref` as the reference point.
             *   If placement is relative to a **new or different reference object** for this item (e.g., "place item X near the 'window'"):
                 *   Call `find_multiple_objects` to locate this new reference object (e.g., 'window'). Let its coordinate be `New_Ref_coord`.
                 *   Calculate the `P_coord` for the current item relative to `New_Ref_coord`.
@@ -135,52 +138,55 @@ Your Multi-Step Reasoning Process for Pick-and-Place Task Planning:
 
 4.  **Final Output Format**:
     *   Your final response MUST be a textual explanation of your plan (including subgoals and how pick/place coordinates were determined, especially the reference points used).
-    *   This is followed by a single list of (x_map, y_map) navigation coordinates, representing the sequence of pick and place destinations, enclosed in a box like this: `\\boxed{{(pick_x1, pick_y1), (place_x1, place_y1), (pick_x2, pick_y2), (place_x2, place_y2), ...}}`.
+    *   This is followed by a single list of (x_map, y_map) navigation coordinates, representing the sequence of pick and place destinations, enclosed in a box like this: `\\boxed{{(pick_x1, pick_y1), (place_x1, pick_y1), (pick_x2, pick_y2), (place_x2, pick_y2), ...}}`.
     *   If the goal cannot be achieved, the box should be empty: `\\boxed{{}}`.
 
 Example for Pick-and-Place:
-User Input: "Goal: 'I want to set up a meeting for two people.' Suggested top_k for searches: 5. Suggested score_thres: 0.95. Suggested cluster: true. Suggested dist_thres: 1.0."
+User Input: "Goal: 'I want to set up a meeting for two people. My current location is (6.50, 10.50) meters.' Suggested top_k for searches: 5. Suggested score_thres: 0.95. Suggested radius: 1.5 meters. Suggested cluster: true. Suggested dist_thres: 1.0." (Note: all spatial values are in meters)
 
 <thought>
 1.  Goal Decomposition (Pick-and-Place for "meeting for two people"):
-    The plan is to find a table first, then pick and place two distinct chairs near it.
+    The plan is to find a table first, then pick and place two distinct chairs near it. The user has specified their current location as (6.50, 10.50) meters and suggested a radius of 1.5 meters.
 
 2.  Iterative Planning for Pick-and-Place Actions:
 
     Action 0: Locate the 'table' to serve as the common placement reference.
-    Call `find_multiple_objects(obj_names=["table"], ref_pos=None, top_k=5, score_thres=0.95, cluster=True, dist_thres=1.0)`.
-    Assume tool returns: `{{"table": ([[790.0, 1125.0]], [0.98])}}`. (Example result might show more if top_k was higher and more tables existed, but for simplicity, we assume one is chosen or is best).
-    Table reference `T_ref = (790.0, 1125.0)`.
+    The user's goal states: "My current location is (6.50, 10.50) meters". I will use this as `ref_pos` and the suggested radius of 1.5 meters for the initial table search.
+    Call `find_multiple_objects(obj_names=["table"], ref_pos=[6.50, 10.50], radius=1.5, top_k=5, score_thres=0.95, cluster=True, dist_thres=1.0)`.
+    Assume tool returns: `{{"table": ([], [])}}`. **Initial search failed because no table found with score >= 0.95 near the current location within the 1.5 meter radius.**
+    Retry with lower threshold (still using current location as `ref_pos` and the same radius): Call `find_multiple_objects(obj_names=["table"], ref_pos=[6.50, 10.50], radius=1.5, top_k=5, score_thres=0.3, cluster=True, dist_thres=1.0)`.
+    Assume tool returns: `{{"table": ([[7.90, 11.25]], [0.35])}}`. (Found one with lower confidence, coordinates are in meters).
+    Table reference `T_ref = (7.90, 11.25)` meters.
 
     For Chair1:
     a.  Determine PLACE Coordinate for Chair1 (`C1_place`):
-        This will be near `T_ref`. Let's calculate `C1_place = (790.0, 1120.0)` (e.g., 0.5m south of table center).
+        This will be `T_ref`. `C1_place = (7.90, 11.25)` meters.
     b.  Determine PICK Coordinate for Chair1 (`C1_pick`):
-        Locate 'Chair1'. Search for a 'chair' using `C1_place` as `ref_pos` to find one nearby.
-        Call `find_multiple_objects(obj_names=["chair"], ref_pos=[790.0, 1120.0], radius=10.0, top_k=5, score_thres=0.95, cluster=True, dist_thres=1.0)`. (Radius is an example for searching near C1_place).
-        Assume tool returns: `{{"chair": ([[788.0, 1110.0], [other_chair_x, other_chair_y]], [0.93, 0.91])}}`. (Agent picks the first/best one).
-        Selected `C1_pick = (788.0, 1110.0)`.
+        Locate 'Chair1'. Search for a 'chair' using `C1_place` as `ref_pos` to find one nearby. Let's use a search radius of 1.0 meter.
+        Call `find_multiple_objects(obj_names=["chair"], ref_pos=[7.90, 11.25], radius=1.0, top_k=5, score_thres=0.95, cluster=True, dist_thres=1.0)`.
+        Assume tool returns: `{{"chair": ([[7.88, 11.10], [other_chair_x, other_chair_y]], [0.93, 0.91])}}`. (Coordinates are in meters).
+        Selected `C1_pick = (7.88, 11.10)` meters.
 
     For Chair2:
     a.  Determine PLACE Coordinate for Chair2 (`C2_place`):
-        This will also be near `T_ref`, but distinct from `C1_place`. Let's calculate `C2_place = (785.0, 1125.0)` (e.g., 0.5m west of table center).
+        This will also be `T_ref`. `C2_place = (7.90, 11.25)` meters.
     b.  Determine PICK Coordinate for Chair2 (`C2_pick`):
-        Locate 'Chair2' (must be distinct from Chair1). Search for a 'chair' using `C2_place` as `ref_pos`.
-        Call `find_multiple_objects(obj_names=["chair"], ref_pos=[785.0, 1125.0], radius=10.0, top_k=5, score_thres=0.95, cluster=True, dist_thres=1.0)`.
-        Assume tool returns: `{{"chair": ([[780.0, 1122.0], [600.0, 1000.0], [788.0, 1110.0]], [0.94, 0.90, 0.88])}}`. (Agent needs to pick one that is not C1_pick).
-        Ensure this chair is not `C1_pick`. `(780.0, 1122.0)` is different from `(788.0, 1110.0)`.
-        Selected `C2_pick = (780.0, 1122.0)`.
+        Locate 'Chair2' (must be distinct from Chair1). Search for a 'chair' using `C2_place` as `ref_pos`. Let's use a search radius of 1.0 meter.
+        Call `find_multiple_objects(obj_names=["chair"], ref_pos=[7.90, 11.25], radius=1.0, top_k=5, score_thres=0.95, cluster=True, dist_thres=1.0)`.
+        Assume tool returns: `{{"chair": ([[7.80, 11.22], [6.00, 10.00], [7.88, 11.10]], [0.94, 0.90, 0.88])}}`. (Coordinates are in meters).
+        Ensure this chair is not `C1_pick`. `(7.80, 11.22)` is different from `(7.88, 11.10)`.
+        Selected `C2_pick = (7.80, 11.22)` meters.
 
 3.  Final Path Generation:
     The robot needs to navigate to `C1_pick`, then `C1_place`, then `C2_pick`, then `C2_place`.
-    Path: (788.0, 1110.0) -> (790.0, 1120.0) -> (780.0, 1122.0) -> (785.0, 1125.0).
+    Path (all coordinates in meters): (7.88, 11.10) -> (7.90, 11.25) -> (7.80, 11.22) -> (7.90, 11.25).
 
 4.  Final Output:
 To set up the meeting for two people: First, I will locate a table to serve as the central point.
-For the first chair: I will determine a placement spot south of the table. Then, I will find a chair near that spot, pick it up, and move it to the placement spot.
-For the second chair: I will determine a placement spot west of the table. Then, I will find a different chair near that second spot, pick it up, and move it to its placement spot.
-The navigation sequence is:
-\\boxed{{(788.0, 1110.0), (790.0, 1120.0), (780.0, 1122.0), (785.0, 1125.0)}}
+For the first chair: I will determine a placement spot which is the table point. Then, I will find a chair near that spot (within a 1.0 meter radius), pick it up, and move it to the placement spot.
+For the second chair: I will determine a placement spot which is the same table point. Then, I will find a different chair near that second spot (within a 1.0 meter radius), pick it up, and move it to its placement spot.
+The navigation sequence is (all coordinates in meters):
+\\boxed{{(7.88, 11.10), (7.90, 11.25), (7.80, 11.22), (7.90, 11.25)}}
 </thought>
 '''),
         MessagesPlaceholder(variable_name="chat_history"),
@@ -202,7 +208,7 @@ The navigation sequence is:
 # --- Coordinate Extraction Utility ---
 def extract_coordinates(
     boxed_string: str,
-    output_filename_base: str = "extracted_coordinates_langchain"
+    output_filename_base: str = "goals"
 ) -> Tuple[Optional[np.ndarray], Optional[str]]:
     if not boxed_string:
         print("Warning: extract_coordinates received an empty or None string.")
@@ -233,7 +239,7 @@ async def reasoning_with_langchain_style(
     output_npy_filename_base: str = "extracted_coordinates_langchain",
     agent_model_name: str = "gpt-4o",
     max_tokens_agent: int = 4096,
-    temperature_agent: float = 0.1
+    temperature_agent: float = 0.5
 ):
     print("--- Running Langchain Reasoning Workflow ---")
 
@@ -288,7 +294,7 @@ if __name__ == "__main__":
     import nest_asyncio
     nest_asyncio.apply()
 
-    task_goal = "I want to set up a meeting with for two people."
+    task_goal = "I want to set up a meeting with for two people. I want all the objects you initially found are at least 5 meters apart from each other before you place them together"
     task_output_filename = "goals"
 
     # Default parameters for the reasoning_with_langchain_style function

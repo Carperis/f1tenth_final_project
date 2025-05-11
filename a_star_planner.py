@@ -225,7 +225,7 @@ class AStarPlanner:
 
         plt.show()
 
-    def _find_nearest_free_point(self, pt_px, max_search_radius_px=10):
+    def _find_nearest_free_point(self, pt_px, max_search_radius_px=20):
         if self._is_valid_and_free(pt_px):
             return pt_px
 
@@ -247,8 +247,17 @@ class AStarPlanner:
         self.goal_px = original_goal_px
 
         if not self._is_valid_and_free(self.start_px):
-            if visualize: self._visualize_path(None, path_found=False, save=save, idx=idx)
-            return None, None
+            if near:
+                new_start_px = self._find_nearest_free_point(self.start_px)
+                if new_start_px:
+                    self.start_px = new_start_px
+                    self.start_world = self._pixel_to_world(np.array(new_start_px))
+                else:
+                    if visualize: self._visualize_path(None, path_found=False, save=save, idx=idx)
+                    return None, None # No valid start point found
+            else:
+                if visualize: self._visualize_path(None, path_found=False, save=save, idx=idx)
+                return None, None # Start point is invalid and near is false
 
         if not self._is_valid_and_free(self.goal_px):
             if near:
