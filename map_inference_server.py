@@ -57,6 +57,13 @@ class MapInferenceServer:
             return jsonify({"error": error_msg}), 500
 
         scores_for_label = np.dot(self.map_feats_flat, requested_text_features_squeezed)
+        # Normalize scores to range [0, 1]
+        scores_min = np.min(scores_for_label)
+        scores_max = np.max(scores_for_label)
+        if scores_max > scores_min:  # Avoid division by zero
+            scores_for_label = (scores_for_label - scores_min) / (scores_max - scores_min)
+        else:
+            scores_for_label = np.zeros_like(scores_for_label)  # If all values are the same
         score_map = scores_for_label.reshape(self.original_predicts_shape)
         
         return jsonify({

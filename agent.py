@@ -320,7 +320,7 @@ if __name__ == "__main__":
     task_observer_top_k = 10
     task_observer_score_thres = None
     task_observer_radius = None
-    task_output_filename = "party_setup_coordinates"
+    task_output_filename = "goals"
 
     asyncio.run(reasoning_with_langchain(
         goal=task_goal,

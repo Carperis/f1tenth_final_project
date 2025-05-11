@@ -3,6 +3,7 @@ import numpy as np
 from typing import List, Tuple, Optional, Dict
 from utils import grid2map_coords, map2grid_coords, map2px_coords, px2map_coords
 import imageio.v2 as imageio  # Changed import for ImageIO v3 compatibility
+from sklearn.cluster import DBSCAN  # Removed KMeans, kept DBSCAN
 
 class MapInferenceClient:
     def __init__(self, server_url: str = "http://127.0.0.1:1234/infer", obstacle_map_file: str = None):
@@ -25,7 +26,9 @@ class MapInferenceClient:
         radius: Optional[float] = None,
         top_k: Optional[int] = None,
         score_thres: float = 0.0,
-        mask: bool = True
+        mask: bool = True,
+        cluster: bool = False,
+        dist_thres: Optional[float] = None  # New parameter for DBSCAN clustering
     ) -> Tuple[List[List[float]], List[float]]:
         map_data = self._query_location_score_map(obj_name)
 
@@ -110,16 +113,75 @@ class MapInferenceClient:
         if coords_rc_final_candidates.shape[0] == 0:
             return [], []
 
-        sort_indices = np.argsort(scores_final_candidates)[::-1] 
-        
-        if top_k is not None and top_k > 0:
-            num_to_take = min(top_k, len(sort_indices))
-            final_sorted_indices = sort_indices[:num_to_take]
-        else:
-            final_sorted_indices = sort_indices
+        result_coords_rc_array = np.empty((0,2))
+        result_scores_array = np.array([])
+
+        if cluster:
+            if dist_thres is not None and dist_thres > 0:
+                # --- DBSCAN LOGIC ---
+                score_map_grid_resolution = 0.1  # Assuming 0.1 m/grid cell resolution
+                eps_grid = dist_thres / score_map_grid_resolution
+                
+                dbscan = DBSCAN(eps=eps_grid, min_samples=1) 
+                cluster_labels = dbscan.fit_predict(coords_rc_final_candidates)
+
+                unique_labels = np.unique(cluster_labels)
+                
+                if len(unique_labels) == 0:
+                    pass 
+                else:
+                    cluster_centroids_rc_list = []
+                    cluster_avg_scores_list = []
+                    for label in unique_labels:
+                        points_in_cluster_mask = (cluster_labels == label)
+                        coords_in_cluster = coords_rc_final_candidates[points_in_cluster_mask]
+                        scores_in_cluster = scores_final_candidates[points_in_cluster_mask]
+
+                        if coords_in_cluster.shape[0] > 0:
+                            centroid_rc = np.mean(coords_in_cluster, axis=0)
+                            avg_score = np.mean(scores_in_cluster)
+                            cluster_centroids_rc_list.append(centroid_rc)
+                            cluster_avg_scores_list.append(avg_score)
+                    
+                    if cluster_centroids_rc_list:
+                        dbscan_coords_rc = np.array(cluster_centroids_rc_list)
+                        dbscan_scores = np.array(cluster_avg_scores_list)
+
+                        sort_indices_dbscan = np.argsort(dbscan_scores)[::-1]
+                        sorted_coords_rc_dbscan = dbscan_coords_rc[sort_indices_dbscan]
+                        sorted_scores_dbscan = dbscan_scores[sort_indices_dbscan]
+                        
+                        if top_k is not None and top_k > 0:
+                            num_to_take = min(top_k, sorted_coords_rc_dbscan.shape[0])
+                            result_coords_rc_array = sorted_coords_rc_dbscan[:num_to_take]
+                            result_scores_array = sorted_scores_dbscan[:num_to_take]
+                        else:
+                            result_coords_rc_array = sorted_coords_rc_dbscan
+                            result_scores_array = sorted_scores_dbscan
+            # If dist_thres is not valid for DBSCAN, or cluster is True but no dist_thres,
+            # fall back to sorting individual points if top_k is specified, or all points.
+            else: 
+                sort_indices = np.argsort(scores_final_candidates)[::-1]
+                if top_k is not None and top_k > 0:
+                    num_to_take = min(top_k, len(sort_indices))
+                    final_sorted_indices = sort_indices[:num_to_take]
+                else:
+                    final_sorted_indices = sort_indices
+                
+                if len(final_sorted_indices) > 0:
+                    result_coords_rc_array = coords_rc_final_candidates[final_sorted_indices]
+                    result_scores_array = scores_final_candidates[final_sorted_indices]
+        else: # cluster is False -> sort individual points
+            sort_indices = np.argsort(scores_final_candidates)[::-1]
+            if top_k is not None and top_k > 0:
+                num_to_take = min(top_k, len(sort_indices))
+                final_sorted_indices = sort_indices[:num_to_take]
+            else:
+                final_sorted_indices = sort_indices
             
-        result_coords_rc_array = coords_rc_final_candidates[final_sorted_indices]
-        result_scores_array = scores_final_candidates[final_sorted_indices]
+            if len(final_sorted_indices) > 0:
+                result_coords_rc_array = coords_rc_final_candidates[final_sorted_indices]
+                result_scores_array = scores_final_candidates[final_sorted_indices]
         
         if result_coords_rc_array.shape[0] == 0:
             return [], []
@@ -134,7 +196,9 @@ class MapInferenceClient:
         radius: Optional[float] = None,
         top_k: Optional[int] = None,
         score_thres: float = 0.0,
-        mask: bool = True
+        mask: bool = True,
+        cluster: bool = False, # Added cluster parameter
+        dist_thres: Optional[float] = None # Added dist_thres parameter
     ) -> Dict[str, Tuple[List[List[float]], List[float]]]:
         results: Dict[str, Tuple[List[List[float]], List[float]]] = {}
         for obj_name in obj_names:
@@ -144,7 +208,9 @@ class MapInferenceClient:
                 radius,
                 top_k,
                 score_thres,
-                mask
+                mask,
+                cluster,      # Pass cluster parameter
+                dist_thres    # Pass dist_thres parameter
             )
         return results
 
@@ -154,10 +220,20 @@ if __name__ == '__main__':
         obstacle_map_file="./maps/map.pgm"
     )
     
-    obj_name = "room"
-    curr_pos = [15, 3]
-    coords, scores = client.find_obj(obj_name, top_k=20, mask=True, curr_pos=curr_pos, radius=10.0)
+    obj_name = "table"
+    curr_pos = [6, 3]
+    coords, scores = client.find_obj(
+        obj_name, 
+        top_k=20,
+        mask=True,
+        curr_pos=curr_pos,
+        radius=5.0,
+        cluster=True,
+        dist_thres=2.0,
+        score_thres=0.95
+    )
     print(f"Found {len(coords)} coordinates for {obj_name} with scores: {scores}")
     from viz_map_points import PointVisualizer
     visualizer = PointVisualizer(map_file="./maps/map.pgm")
-    visualizer.visualize_points(coords + [curr_pos], point_label=obj_name, point_type="map")
+    coords += [curr_pos]
+    visualizer.visualize_points(coords, point_label=obj_name, point_type="map")
