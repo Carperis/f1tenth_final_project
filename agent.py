@@ -2,15 +2,14 @@ import asyncio
 import os
 import re
 import numpy as np
-from typing import List, Tuple, Optional, Dict, Type
+from typing import List, Tuple, Optional, Dict
 
+# Langchain imports
 from langchain_openai import ChatOpenAI
 from langchain.agents import tool, AgentExecutor, create_openai_functions_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.chains import LLMChain
 from langchain.memory import ConversationBufferMemory
 from pydantic.v1 import BaseModel, Field, conlist
-
 from map_inference_client import MapInferenceClient
 from viz_map_points import PointVisualizer
 
@@ -29,110 +28,161 @@ visualizer = PointVisualizer(
 # --- Langchain Tool Definitions ---
 
 class FindMultiObjectsArgs(BaseModel):
-    obj_names: List[str] = Field(title="Object Names", description="A list of object names to query.")
-    curr_pos: Optional[conlist(int, min_items=2, max_items=2)] = Field(
-        default=None,
-        title="Current Position (X, Y)",
-        description="Optional. Current position as a list of two floats [x, y] for regional search. Example: [10.0, 20.5]"
-    )
-    radius: Optional[float] = Field(title="Search Radius", default=None, description="Optional. Radius for the regional search around curr_pos.")
-    top_k: Optional[int] = Field(title="Top K Results per Object", default=None, description="Optional. Number of top results to return for each object, sorted by score.")
-    score_thres: float = Field(title="Score Threshold", default=0.0, description="Optional. Minimum score for a coordinate to be considered. Defaults to 0.0.")
-    mask: bool = Field(title="Mask by Obstacle Map", default=True, description="Optional. Whether to mask results by the obstacle map. Defaults to True.")
+    obj_names: List[str] = Field(description="List of object names to search for.")
+    ref_pos: Optional[List[float]] = Field(description="Reference [x_map, y_map] position for the search. If None, a global search is performed.")
+    radius: Optional[float] = Field(description="Search radius around ref_pos.")
+    top_k: Optional[int] = Field(description="Maximum number of results to return per object type.")
+    score_thres: float = Field(description="Minimum score threshold for results.")
+    mask: bool = Field(description="Whether to apply obstacle masking to the results.")
+    cluster: bool = Field(description="Whether to cluster the results using DBSCAN.")
+    dist_thres: Optional[float] = Field(description="Distance threshold for DBSCAN clustering in map units. Only used if cluster is True.")
 
 
 @tool(args_schema=FindMultiObjectsArgs)
 def find_multiple_objects(
     obj_names: List[str],
-    curr_pos: Optional[List[float]] = None,
+    ref_pos: Optional[List[float]] = None,
     radius: Optional[float] = None,
     top_k: Optional[int] = None,
     score_thres: float = 0.0,
-    mask: bool = True
+    mask: bool = True,
+    cluster: bool = True,
+    dist_thres: Optional[float] = None
 ) -> Dict[str, Tuple[List[List[float]], List[float]]]:
     """
-    Finds coordinates and scores for multiple specified object types using the map inference server.
-    It queries the server for each object and applies filters like current position,
-    search radius, top-k results, score threshold, and obstacle masking.
+    Finds multiple objects in the environment based on their names and optional filters.
     Returns a dictionary where keys are object names and values are tuples of
     (list of [x,y] coordinates, list of scores).
     """
-    print(f"Langchain Tool 'find_multiple_objects' called with: obj_names='{obj_names}', "
-          f"curr_pos={curr_pos}, radius={radius}, top_k={top_k}, "
-          f"score_thres={score_thres}, mask={mask}")
-
-    # Ensure curr_pos is a list of floats if provided, matching find_multi_objs expectation
-    processed_curr_pos = None
-    if curr_pos is not None:
-        if len(curr_pos) == 2:
-            try:
-                processed_curr_pos = [float(cp) for cp in curr_pos]
-            except ValueError:
-                print(f"Warning: curr_pos {curr_pos} could not be converted to list of floats.")
-                pass
-        else:
-            print(f"Warning: curr_pos {curr_pos} is not a list of two elements.")
-
     results = client.find_multi_objs(
         obj_names=obj_names,
-        curr_pos=processed_curr_pos,
+        ref_pos=ref_pos, # map tool's ref_pos to client's curr_pos
         radius=radius,
         top_k=top_k,
         score_thres=score_thres,
-        mask=mask
+        mask=mask,
+        cluster=cluster,
+        dist_thres=dist_thres
     )
-    print(f"Langchain Tool 'find_multiple_objects' result: {results}")
     return results
 
 # --- Agent Definitions ---
 
-def create_map_observer_agent_executor(
+def create_comprehensive_reasoning_agent_executor(
     model_name: str = "gpt-4",
     max_tokens: int = 4096,
-    temperature: float = 0.0
+    temperature: float = 0.0,
+    memory: Optional[ConversationBufferMemory] = None
 ):
-    observer_prompt_template = ChatPromptTemplate.from_messages([
-        ("system", """You are an observer agent. Your task is to identify objects relevant to the given goal using the provided tool.
+    prompt_template = ChatPromptTemplate.from_messages([
+        ("system", '''You are an intelligent assistant responsible for planning pick-and-place tasks in a 2D map environment. Your goal is to understand a user's request, decompose it into a sequence of subgoals involving picking up objects and placing them at specified or inferred locations, and then to generate a sequence of navigation coordinates for a robot to execute these actions.
 
-You have one tool: `find_multiple_objects`.
-- Use this tool to find coordinates and scores for one or MORE types of objects.
-- It queries a map inference server for each specified object.
-- You can apply filters: current position (`curr_pos`), search `radius`, `top_k` results per object, a `score_thres`, and obstacle `mask`.
+Your Primary Tool: `find_multiple_objects`
+- Use this tool to find coordinates (and scores) for objects that need to be picked up, and for reference objects/locations for placement.
+- It queries a map inference server.
+- Filters: reference position (`ref_pos`), search `radius`, `top_k` results, `score_thres`, obstacle `mask`, and DBSCAN `cluster`ing with a `dist_thres`.
 
 Tool Arguments for `find_multiple_objects`:
-- `obj_names`: List[str]. Names of objects to search (e.g., ["chair", "desk"]). REQUIRED.
-- `curr_pos`: Optional[List[float]]. Current [x, y] position (e.g., [10.0, 20.5]).
-- `radius`: Optional[float]. Search radius around `curr_pos`.
+- `obj_names`: List[str]. Names of objects to search (e.g., ["chair", "desk"]). REQUIRED. Min 1 item.
+- `ref_pos`: Optional[List[float]]. Reference [x_map, y_map] position for search (e.g., [10.0, 20.5]). If None, the function will do a global search.
+- `radius`: Optional[float]. Search radius around `ref_pos`.
 - `top_k`: Optional[int]. Max results per object.
 - `score_thres`: float. Minimum score (e.g., 0.1 for confidence, 0.0 for max recall). REQUIRED.
 - `mask`: bool. Filter by obstacle map (default True).
+- `cluster`: bool. Whether to cluster results (default False). If True, `dist_thres` should ideally be provided.
+- `dist_thres`: Optional[float]. Distance threshold for DBSCAN. Used if `cluster` is True.
 
 Tool Output (`find_multiple_objects`):
-The tool returns a JSON object (dictionary):
-- Keys: object names (str).
-- Values: A tuple: (list of [x,y] coordinates, list of scores).
+- A dictionary: Keys are object names (str). Values are a tuple: (list of [x,y] coordinates, list of scores).
 Example: `{{"chair": ([[120.0, 250.0], [125.0, 252.0]], [0.9, 0.85]), "desk": ([[130.0, 260.0]], [0.95])}}`
 
-Your Final Response Format:
-Your final response MUST be a single JSON object.
-- Keys: object names (str).
-- Values: List of [x,y] coordinate pairs (list of floats) for that object.
-- DISCARD the scores from the tool's output for your final response.
+Your Multi-Step Reasoning Process for Pick-and-Place Task Planning:
+1.  **Understand & Decompose Goal**:
+    *   Analyze the user's overall goal (e.g., "Set up a meeting for two people," "Deliver item A to location B").
+    *   Break it down into a sequence of pick-and-place subgoals. Each subgoal typically involves one pick action and one place action.
+    *   Example for "Set up a meeting for two people":
+        1.  Identify the primary reference for placement: Locate a 'table'. Let its coordinate be `T_ref`. This should typically be a **global search** (call `find_multiple_objects` with `ref_pos=None`) to find the most suitable table in the environment. This establishes the main anchor for subsequent placements.
+        2.  For the first item (Chair1):
+            a.  Determine `C1_place` (placement coordinate for Chair1) relative to `T_ref`. This is a calculation, not a search.
+            b.  Locate Chair1 (object to pick). Call `find_multiple_objects` to find 'chair', ideally searching from `C1_place` (i.e., `ref_pos=C1_place`). This gives `C1_pick`.
+        3.  For the second item (Chair2):
+            a.  Determine `C2_place` (placement coordinate for Chair2) relative to `T_ref`, ensuring it's a distinct placement from `C1_place`. This is a calculation.
+            b.  Locate Chair2 (object to pick, distinct from Chair1). Call `find_multiple_objects` to find another 'chair', ideally searching from `C2_place` (i.e., `ref_pos=C2_place`). This gives `C2_pick`.
 
-Example Thought Process and Final Output:
-User Input Goal: "Find a chair and a desk."
-User Input Current Location: [10.0, 20.0]
-User Input Suggested top_k: 2
-User Input Suggested score_thres: 0.15
+2.  **Iterative Object Location and Placement Planning (for each pick-and-place subgoal/item)**:
+    a.  For each item that needs to be picked and placed (e.g., for Chair1, then for Chair2):
+        i.  **Determine the PLACE Coordinate (`P_coord`)**:
+            *   If the target placement location for this specific item is explicitly defined by the user (e.g., "place item X at [x,y]"), use that as `P_coord`.
+            *   If the placement is relative to a **common reference object** (e.g., placing multiple chairs around the *same* 'table' that was already found as `T_ref`):
+                *   Calculate the specific `P_coord` for the *current item* relative to `T_ref` (e.g., Chair1_place_coord might be 0.5m north of `T_ref`; Chair2_place_coord might be 0.5m east of `T_ref`). This step does not require a new tool call if `T_ref` is known.
+            *   If placement is relative to a **new or different reference object** for this item (e.g., "place item X near the 'window'"):
+                *   Call `find_multiple_objects` to locate this new reference object (e.g., 'window'). Let its coordinate be `New_Ref_coord`.
+                *   Calculate the `P_coord` for the current item relative to `New_Ref_coord`.
+            *   The result of this step is the final `P_coord` for the current item.
 
-1. Identify objects: "chair", "desk".
-2. Plan tool call: `find_multiple_objects(obj_names=["chair", "desk"], curr_pos=[10.0, 20.0], top_k=2, score_thres=0.15)`
-3. Assume tool returns: `{{ "chair": ([[120.5, 250.0], [125.0, 252.8]], [0.9, 0.85]), "desk": ([[130.0, 260.0]], [0.95]) }}`
-4. Transform: Extract coordinates, discard scores.
-   - "chair": `[[120.5, 250.0], [125.0, 252.8]]`
-   - "desk": `[[130.0, 260.0]]`
-5. Final JSON output: `{{ "chair": [[120.5, 250.0], [125.0, 252.8]], "desk": [[130.0, 260.0]] }}`
-"""),
+        ii. **Determine the PICK Coordinate (`Pk_coord`)**:
+            *   To find the object to be picked (e.g., 'Chair1'), call `find_multiple_objects`.
+            *   **Strategy for `ref_pos` in `find_multiple_objects`**:
+                1.  **Primary Strategy**: Use the `P_coord` (the place coordinate just determined for this item) as the `ref_pos` for this search, possibly with a suitable `radius`. This aims to find an instance of the object that is closest or most convenient to its intended destination.
+                2.  **Fallback Strategy**: If the primary search yields no suitable object (e.g., nothing found near `P_coord`), or if objects are known to be generally located far from their destinations, you might fall back to searching from another broader, logical area (e.g., a global search with `ref_pos=None`).
+            *   The selected coordinate from this search is `Pk_coord`.
+
+    b.  **Distinctness**: When picking multiple instances of the same object type (e.g., two chairs), ensure that the `Pk_coord` selected for the current item is different from the `Pk_coord`s of previously picked items of the same type. If a search yields an already-picked item, try to select a different one from the tool's results (if `top_k` > 1) or re-call `find_multiple_objects` with adjusted parameters (e.g., larger `top_k`, different `ref_pos` for the search if the fallback strategy is used, such as a global search).
+
+3.  **Final Path Generation**:
+    *   Once all necessary **pick coordinates** (`Pk_coord_1`, `Pk_coord_2`, ...) and **place coordinates** (`P_coord_1`, `P_coord_2`, ...) are determined for all items, compile an ordered sequence:
+    *   `Pk_coord_1` -> `P_coord_1` -> `Pk_coord_2` -> `P_coord_2` ...
+
+4.  **Final Output Format**:
+    *   Your final response MUST be a textual explanation of your plan (including subgoals and how pick/place coordinates were determined, especially the reference points used).
+    *   This is followed by a single list of (x_map, y_map) navigation coordinates, representing the sequence of pick and place destinations, enclosed in a box like this: `\\boxed{{(pick_x1, pick_y1), (place_x1, place_y1), (pick_x2, pick_y2), (place_x2, place_y2), ...}}`.
+    *   If the goal cannot be achieved, the box should be empty: `\\boxed{{}}`.
+
+Example for Pick-and-Place:
+User Input: "Goal: 'I want to set up a meeting for two people.' Suggested top_k for searches: 5. Suggested score_thres: 0.95. Suggested cluster: true. Suggested dist_thres: 1.0."
+
+<thought>
+1.  Goal Decomposition (Pick-and-Place for "meeting for two people"):
+    The plan is to find a table first, then pick and place two distinct chairs near it.
+
+2.  Iterative Planning for Pick-and-Place Actions:
+
+    Action 0: Locate the 'table' to serve as the common placement reference.
+    Call `find_multiple_objects(obj_names=["table"], ref_pos=None, top_k=5, score_thres=0.95, cluster=True, dist_thres=1.0)`.
+    Assume tool returns: `{{"table": ([[790.0, 1125.0]], [0.98])}}`. (Example result might show more if top_k was higher and more tables existed, but for simplicity, we assume one is chosen or is best).
+    Table reference `T_ref = (790.0, 1125.0)`.
+
+    For Chair1:
+    a.  Determine PLACE Coordinate for Chair1 (`C1_place`):
+        This will be near `T_ref`. Let's calculate `C1_place = (790.0, 1120.0)` (e.g., 0.5m south of table center).
+    b.  Determine PICK Coordinate for Chair1 (`C1_pick`):
+        Locate 'Chair1'. Search for a 'chair' using `C1_place` as `ref_pos` to find one nearby.
+        Call `find_multiple_objects(obj_names=["chair"], ref_pos=[790.0, 1120.0], radius=10.0, top_k=5, score_thres=0.95, cluster=True, dist_thres=1.0)`. (Radius is an example for searching near C1_place).
+        Assume tool returns: `{{"chair": ([[788.0, 1110.0], [other_chair_x, other_chair_y]], [0.93, 0.91])}}`. (Agent picks the first/best one).
+        Selected `C1_pick = (788.0, 1110.0)`.
+
+    For Chair2:
+    a.  Determine PLACE Coordinate for Chair2 (`C2_place`):
+        This will also be near `T_ref`, but distinct from `C1_place`. Let's calculate `C2_place = (785.0, 1125.0)` (e.g., 0.5m west of table center).
+    b.  Determine PICK Coordinate for Chair2 (`C2_pick`):
+        Locate 'Chair2' (must be distinct from Chair1). Search for a 'chair' using `C2_place` as `ref_pos`.
+        Call `find_multiple_objects(obj_names=["chair"], ref_pos=[785.0, 1125.0], radius=10.0, top_k=5, score_thres=0.95, cluster=True, dist_thres=1.0)`.
+        Assume tool returns: `{{"chair": ([[780.0, 1122.0], [600.0, 1000.0], [788.0, 1110.0]], [0.94, 0.90, 0.88])}}`. (Agent needs to pick one that is not C1_pick).
+        Ensure this chair is not `C1_pick`. `(780.0, 1122.0)` is different from `(788.0, 1110.0)`.
+        Selected `C2_pick = (780.0, 1122.0)`.
+
+3.  Final Path Generation:
+    The robot needs to navigate to `C1_pick`, then `C1_place`, then `C2_pick`, then `C2_place`.
+    Path: (788.0, 1110.0) -> (790.0, 1120.0) -> (780.0, 1122.0) -> (785.0, 1125.0).
+
+4.  Final Output:
+To set up the meeting for two people: First, I will locate a table to serve as the central point.
+For the first chair: I will determine a placement spot south of the table. Then, I will find a chair near that spot, pick it up, and move it to the placement spot.
+For the second chair: I will determine a placement spot west of the table. Then, I will find a different chair near that second spot, pick it up, and move it to its placement spot.
+The navigation sequence is:
+\\boxed{{(788.0, 1110.0), (790.0, 1120.0), (780.0, 1122.0), (785.0, 1125.0)}}
+</thought>
+'''),
         MessagesPlaceholder(variable_name="chat_history"),
         ("user", "{input}"),
         MessagesPlaceholder(variable_name="agent_scratchpad"),
@@ -140,68 +190,14 @@ User Input Suggested score_thres: 0.15
 
     llm = ChatOpenAI(model=model_name, temperature=temperature, max_tokens=max_tokens)
     tools = [find_multiple_objects]
-    agent = create_openai_functions_agent(llm, tools, observer_prompt_template)
-    memory = ConversationBufferMemory(
-        memory_key="chat_history", input_key="input", return_messages=True
-    )
+    agent = create_openai_functions_agent(llm, tools, prompt_template)
+    
+    if memory is None:
+        memory = ConversationBufferMemory(
+            memory_key="chat_history", input_key="input", return_messages=True
+        )
     agent_executor = AgentExecutor(agent=agent, tools=tools, memory=memory, verbose=True)
     return agent_executor
-
-def create_map_planner_agent_executor(
-    model_name: str = "gpt-4",
-    max_tokens: int = 4096,
-    temperature: float = 0.0
-):
-    
-    # Define the prompt for the planner agent
-    planner_prompt_template = ChatPromptTemplate.from_messages([
-        ("system", """You are a task planner.
-Your Planning Process:
-1.  **Understand the Goal**: Determine what objects are needed, how many of each, and the overall task.
-2.  **Analyze Observer Output (`coord_output`)**: Check if necessary objects are present. Deduplicate very close coordinates for the same object instance.
-3.  **Select Specific Coordinates**: Based on the `goal`, choose specific object instances and their representative coordinates.
-4.  **Plan Path Order**: Determine an efficient sequence for visiting selected coordinates, considering `current_location`.
-5.  **Handle Insufficient Objects**: If the goal cannot be achieved, clearly state why and output an empty list of coordinates: `\\boxed{{}}`.
-6.  **Format Output**: Your final output must be a single list of (x, y) pixel coordinates to visit, enclosed in a box like this: `\\boxed{{(x1.0, y1.0), (x2.5, y2.5), ...}}`.
-
-Example 1: Meeting Setup
-Goal: "Set up a meeting with a table and two chairs."
-Current Location: (50.0, 50.0)
-Observer Output: `{{"Table": [[791.0,1127.0], [790.5,1128.5]], "Chair": [[881.5,1053.0], [886.0,1049.5], [870.0,1078.0], [950.5,1000.0]]}}`
-<think>
-The goal is to set up a meeting with one table and two chairs. Current location is (50.0,50.0).
-Table: select `T = (791.0,1127.0)`.
-Chair: distinct candidates are `(881.5,1053.0)`, `(870.0,1078.0)`, `(950.5,1000.0)`.
-Need two chairs. Choose Chair_B `(870.0,1078.0)` and Chair_C `(950.5,1000.0)`.
-Path: Current (50.0,50.0) -> Chair_B (870.0,1078.0) -> Table T (791.0,1127.0) -> Chair_C (950.5,1000.0) -> Table T (791.0,1127.0).
-</think>
-\\boxed{{(870.0, 1078.0), (791.0, 1127.0), (950.5, 1000.0), (791.0, 1127.0)}}
-
-Example 2: Insufficient Objects
-Goal: "Find a red ball and a blue box."
-Current Location: (20.0, 20.0)
-Observer Output: `{{"red_ball": [[150.0,150.0]], "green_square": [[160.5,160.5]]}}`
-<think>
-Goal requires "red_ball" and "blue_box". "blue_box" not found. Goal cannot be achieved.
-</think>
-The goal "Find a red ball and a blue box." cannot be achieved as a "blue_box" was not found.
-\\boxed{{}}
-"""),
-        MessagesPlaceholder(variable_name="chat_history"), # For conversational memory
-        ("user", "{input}"), # Single input variable for the user message
-    ])
-
-    llm = ChatOpenAI(model=model_name, temperature=temperature, max_tokens=max_tokens)
-    memory = ConversationBufferMemory(
-        memory_key="chat_history", input_key="input", return_messages=True
-    )
-    planner_chain = LLMChain(
-        llm=llm,
-        prompt=planner_prompt_template,
-        memory=memory,
-        verbose=True
-    )
-    return planner_chain
 
 # --- Coordinate Extraction Utility ---
 def extract_coordinates(
@@ -215,9 +211,8 @@ def extract_coordinates(
     matches = re.findall(r"\\boxed{(.*?)}", boxed_string)
     coordinates = []
     for match in matches:
-        # Updated regex to match floating point numbers
         coords = re.findall(r"\((\d+\.?\d*|\.\d+),\s*(\d+\.?\d*|\.\d+)\)", match)
-        coordinates.extend([[float(x), float(y)] for x, y in coords]) # Convert to float
+        coordinates.extend([[float(x), float(y)] for x, y in coords])
     
     if not coordinates:
         print("No coordinates found in the boxed string.")
@@ -230,103 +225,83 @@ def extract_coordinates(
     np.save(abs_output_file, coordinates_array)
     return coordinates_array, abs_output_file
 
-async def reasoning_with_langchain(
+async def reasoning_with_langchain_style(
     goal: str,
-    current_location_xy: Tuple[int, int],
     observer_top_k_suggestion: int,
     observer_score_thres_suggestion: Optional[float],
     observer_radius_suggestion: Optional[float],
     output_npy_filename_base: str = "extracted_coordinates_langchain",
-    observer_model_name: str = "gpt-4o",
-    planner_model_name: str = "gpt-4o",
-    max_tokens_observer: int = 4096,
-    max_tokens_planner: int = 4096,
-    temperature_observer: float = 0.3,
-    temperature_planner: float = 0.3
+    agent_model_name: str = "gpt-4o",
+    max_tokens_agent: int = 4096,
+    temperature_agent: float = 0.1
 ):
     print("--- Running Langchain Reasoning Workflow ---")
 
-    # --- Agent Initialization ---
-    print(f"Initializing Observer Agent with model: {observer_model_name}")
-    observer_agent_executor = create_map_observer_agent_executor(
-        model_name=observer_model_name, 
-        max_tokens=max_tokens_observer,
-        temperature=temperature_observer
+    agent_memory = ConversationBufferMemory(
+        memory_key="chat_history", input_key="input", return_messages=True
     )
-    print(f"Initializing Planner Agent with model: {planner_model_name}")
-    planner_agent_executor = create_map_planner_agent_executor(
-        model_name=planner_model_name,
-        max_tokens=max_tokens_planner,
-        temperature=temperature_planner
+    print("Initialized memory module for the comprehensive agent.")
+
+    print(f"Initializing Comprehensive Reasoning Agent with model: {agent_model_name}")
+    comprehensive_agent_executor = create_comprehensive_reasoning_agent_executor(
+        model_name=agent_model_name, 
+        max_tokens=max_tokens_agent,
+        temperature=temperature_agent,
+        memory=agent_memory
     )
 
-    # --- Step 1: Observer identifies object coordinates ---
-    print("\n--- Observer Step (Langchain) ---")
-    observer_user_message = (
+    print("\n--- Comprehensive Agent Step (Langchain) ---")
+    agent_user_message = (
         f"Goal: '{goal}'.\n"
-        f"Your current location is {current_location_xy}.\n"
         f"Suggested top_k: {observer_top_k_suggestion}.\n"
         f"Suggested radius: {str(observer_radius_suggestion) if observer_radius_suggestion is not None else 'None'}.\n"
-        f"Suggested score_thres: {str(observer_score_thres_suggestion) if observer_score_thres_suggestion is not None else 'None'}."
+        f"Suggested score_thres: {str(observer_score_thres_suggestion) if observer_score_thres_suggestion is not None else '0.95'}.\n"
+        f"Suggested mask: True.\n"
+        f"Suggested cluster: True.\n"
+        f"Suggested dist_thres: 1.0.\n"
     )
-    observer_invoke_input = {
-        "input": observer_user_message
+    agent_invoke_input = {
+        "input": agent_user_message
     }
 
-    observer_response = await observer_agent_executor.ainvoke(observer_invoke_input)
-    object_coordinates_json_str = observer_response.get("output")
-    print(f"Observer Output (JSON String): {object_coordinates_json_str}")
+    agent_response = await comprehensive_agent_executor.ainvoke(agent_invoke_input)
+    final_plan_and_boxed_coordinates_str = agent_response.get("output")
+    print(f"Comprehensive Agent Output (Plan and Boxed Coordinates String):\n{final_plan_and_boxed_coordinates_str}")
 
-    # --- Step 2: Planner devises a plan and final coordinates ---
-    print("\n--- Planner Step (Langchain) ---")
-    if not object_coordinates_json_str:
-        print("Observer did not return valid coordinates. Cannot proceed with planning.")
-        return
-
-    planner_user_message = (
-        f"Your goal is: '{goal}'.\n"
-        f"Your current location is: {current_location_xy}.\n"
-        f"The observer found the following objects and their pixel coordinates:\n{str(object_coordinates_json_str)}"
-    )
-    planner_invoke_input = {
-        "input": planner_user_message
-    }
-    planner_response_dict = await planner_agent_executor.ainvoke(planner_invoke_input)
-    plan_output_str = planner_response_dict.get(planner_agent_executor.output_key)
-    print(f"Planner Output (Plan and Boxed Coordinates): {plan_output_str}")
-
-    # --- Step 3: Extract and save final coordinates ---
     print("\n--- Extraction Step ---")
-    if plan_output_str:
-        final_coords, file_path = extract_coordinates(plan_output_str, output_filename_base=output_npy_filename_base)
+    if final_plan_and_boxed_coordinates_str:
+        final_coords, file_path = extract_coordinates(final_plan_and_boxed_coordinates_str, output_filename_base=output_npy_filename_base)
         if final_coords is not None:
             print(f"Extracted Coordinates (saved to {file_path}):")
             print(final_coords)
         else:
-            print("No coordinates were extracted from the planner's output.")
+            print("No coordinates were extracted from the agent's output.")
     else:
-        print("Planner did not return any output to extract coordinates from.")
+        print("Agent did not return any output to extract coordinates from.")
 
 if __name__ == "__main__":
     if not os.getenv("OPENAI_API_KEY"):
         print("Error: OPENAI_API_KEY environment variable not set.")
+        print("Please set it before running the script.")
         exit()
 
     import nest_asyncio
     nest_asyncio.apply()
 
-    task_goal = "I want to set up a meeting with a table and two chairs. "
-    task_current_location_xy = None
-    task_observer_top_k = 10
-    task_observer_score_thres = None
-    task_observer_radius = None
+    task_goal = "I want to set up a meeting with for two people."
     task_output_filename = "goals"
 
-    asyncio.run(reasoning_with_langchain(
+    # Default parameters for the reasoning_with_langchain_style function
+    default_observer_top_k = 10
+    default_observer_score_thres = 0.95
+    default_observer_radius = None
+
+    asyncio.run(reasoning_with_langchain_style(
         goal=task_goal,
-        current_location_xy=task_current_location_xy,
-        observer_top_k_suggestion=task_observer_top_k,
-        observer_score_thres_suggestion=task_observer_score_thres,
-        observer_radius_suggestion=task_observer_radius,
-        output_npy_filename_base=task_output_filename
+        observer_top_k_suggestion=default_observer_top_k,
+        observer_score_thres_suggestion=default_observer_score_thres,
+        observer_radius_suggestion=default_observer_radius,
+        output_npy_filename_base=task_output_filename,
+        agent_model_name="gpt-4o",
+        temperature_agent=0.1
     ))

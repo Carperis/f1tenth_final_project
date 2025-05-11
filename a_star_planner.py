@@ -291,4 +291,4 @@ if __name__ == "__main__":
     from utils import grid2map_coords
     goal = grid2map_coords([(1169, 729)])[0]
     
-    planner.plan(start, goal, visualize=True, save=True, near=True, idx=0)
+    planner.plan(start, goal, visualize=True, save=False, near=True, idx=0)

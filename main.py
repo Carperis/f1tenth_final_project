@@ -71,12 +71,22 @@ class RobotController:
         print("\nAll goals processed.")
         self.comm.close_socket()
 
-if __name__ == "__main__":    
+if __name__ == "__main__": 
+    
+    from viz_map_points import PointVisualizer
+    viz = PointVisualizer(
+        map_file="./maps/map.pgm"
+    )
+    
     goals = [
         [12.45, 2.96],
         [35.25, 8.81],
         [50.9, 18.36],
     ]
+    goals = np.load("goals.npy").tolist()
+    print(f"Goals loaded: {goals}")
+    viz.visualize_points(goals, point_label="Goals", point_type="map", show_id=True)
+    
     pgm_file = "./maps/map.pgm"
     yaml_file = "./maps/map.yaml"
     clearance = 0.4

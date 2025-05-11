@@ -22,13 +22,13 @@ class MapInferenceClient:
     def find_obj(
         self,
         obj_name: str,
-        curr_pos: Optional[List[float]] = None,
+        ref_pos: Optional[List[float]] = None,
         radius: Optional[float] = None,
         top_k: Optional[int] = None,
         score_thres: float = 0.0,
         mask: bool = True,
         cluster: bool = False,
-        dist_thres: Optional[float] = None  # New parameter for DBSCAN clustering
+        dist_thres: Optional[float] = None
     ) -> Tuple[List[List[float]], List[float]]:
         map_data = self._query_location_score_map(obj_name)
 
@@ -86,8 +86,8 @@ class MapInferenceClient:
         scores_for_processed = score_map[coords_rc_to_process[:, 0], 
                                          coords_rc_to_process[:, 1]]
 
-        if curr_pos and radius is not None and radius >= 0:
-            current_coords_rc_list = map2grid_coords([list(curr_pos)]) 
+        if ref_pos and radius is not None and radius >= 0:
+            current_coords_rc_list = map2grid_coords([list(ref_pos)]) 
             if current_coords_rc_list:
                 current_coords_rc = current_coords_rc_list[0]
                 curr_r, curr_c = int(current_coords_rc[0]), int(current_coords_rc[1])
@@ -192,7 +192,7 @@ class MapInferenceClient:
     def find_multi_objs(
         self,
         obj_names: List[str],
-        curr_pos: Optional[List[float]] = None,
+        ref_pos: Optional[List[float]] = None,
         radius: Optional[float] = None,
         top_k: Optional[int] = None,
         score_thres: float = 0.0,
@@ -204,36 +204,64 @@ class MapInferenceClient:
         for obj_name in obj_names:
             results[obj_name] = self.find_obj(
                 obj_name,
-                curr_pos,
+                ref_pos,
                 radius,
                 top_k,
                 score_thres,
                 mask,
-                cluster,      # Pass cluster parameter
-                dist_thres    # Pass dist_thres parameter
+                cluster,
+                dist_thres
             )
         return results
 
 if __name__ == '__main__':
+    from viz_map_points import PointVisualizer
     client = MapInferenceClient(
         server_url="http://127.0.0.1:1234/infer",
         obstacle_map_file="./maps/map.pgm"
     )
     
-    obj_name = "table"
-    curr_pos = [6, 3]
-    coords, scores = client.find_obj(
-        obj_name, 
-        top_k=20,
-        mask=True,
-        curr_pos=curr_pos,
+    # obj_name = "table"
+    # ref_pos = [6, 3]
+    # coords, scores = client.find_obj(
+    #     obj_name, 
+    #     top_k=20,
+    #     mask=True,
+    #     ref_pos=ref_pos,
+    #     radius=5.0,
+    #     cluster=True,
+    #     dist_thres=2.0,
+    #     score_thres=0.95
+    # )
+    # print(f"Found {len(coords)} coordinates for {obj_name} with scores: {scores}")
+    # visualizer = PointVisualizer(map_file="./maps/map.pgm")
+    # coords += [ref_pos]
+    # visualizer.visualize_points(coords, point_label=obj_name, point_type="map")
+    
+    # Example using find_multi_objs
+    multi_obj_names = ["table"]
+    ref_pos = [6, 3]
+    multi_results = client.find_multi_objs(
+        multi_obj_names,
+        ref_pos=ref_pos,
         radius=5.0,
+        top_k=10,
+        mask=True,
         cluster=True,
-        dist_thres=2.0,
-        score_thres=0.95
+        dist_thres=None,
+        score_thres=0.9
     )
-    print(f"Found {len(coords)} coordinates for {obj_name} with scores: {scores}")
-    from viz_map_points import PointVisualizer
-    visualizer = PointVisualizer(map_file="./maps/map.pgm")
-    coords += [curr_pos]
-    visualizer.visualize_points(coords, point_label=obj_name, point_type="map")
+    
+    # Visualize all objects with different labels
+    multi_visualizer = PointVisualizer(map_file="./maps/map.pgm")
+    all_points = [ref_pos]  # Start with reference position
+    
+    for obj_name, (obj_coords, obj_scores) in multi_results.items():
+        print(f"Found {len(obj_coords)} coordinates for {obj_name} with scores: {obj_scores}")
+        if obj_coords:
+            all_points.extend(obj_coords)
+            # Visualize each object separately
+            multi_visualizer.visualize_points(obj_coords + [ref_pos], point_label=obj_name, point_type="map")
+    
+    # Visualize all objects together
+    multi_visualizer.visualize_points(all_points, point_label="all objects", point_type="map")
