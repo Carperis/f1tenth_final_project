@@ -233,9 +233,9 @@ def extract_coordinates(
 
 async def reasoning_with_langchain_style(
     goal: str,
-    observer_top_k_suggestion: int,
-    observer_score_thres_suggestion: Optional[float],
-    observer_radius_suggestion: Optional[float],
+    top_k_suggestion: int,
+    score_thres_suggestion: Optional[float],
+    radius_suggestion: Optional[float],
     output_npy_filename_base: str = "extracted_coordinates_langchain",
     agent_model_name: str = "gpt-4o",
     max_tokens_agent: int = 4096,
@@ -259,10 +259,10 @@ async def reasoning_with_langchain_style(
     print("\n--- Comprehensive Agent Step (Langchain) ---")
     agent_user_message = (
         f"Goal: '{goal}'.\n"
-        f"Suggested top_k: {observer_top_k_suggestion}.\n"
-        f"Suggested radius: {str(observer_radius_suggestion) if observer_radius_suggestion is not None else 'None'}.\n"
-        f"Suggested score_thres: {str(observer_score_thres_suggestion) if observer_score_thres_suggestion is not None else '0.95'}.\n"
-        f"Suggested mask: True.\n"
+        f"Suggested top_k: {top_k_suggestion}.\n"
+        f"Suggested radius: {str(radius_suggestion) if radius_suggestion is not None else 'None'}.\n"
+        f"Suggested score_thres: {str(score_thres_suggestion) if score_thres_suggestion is not None else '0.95'}.\n"
+        f"Suggested mask: False.\n"
         f"Suggested cluster: True.\n"
         f"Suggested dist_thres: 1.0.\n"
     )
@@ -295,18 +295,23 @@ if __name__ == "__main__":
     nest_asyncio.apply()
 
     task_goal = "I want to set up a meeting with for two people. I want all the objects you initially found are at least 5 meters apart from each other before you place them together"
+    # task_goal = "Please make me a cup of coffee and bring it to my desk near the middle of hallway."
+    # task_goal = "I am meeting my friend near the stairs. Please bring a table and chairs for the two of us."
+    # task_goal = "I am meeting my friend near the stairs. Please bring a table and chairs for the two of us. Note the stairs are at the RIGHT end of the hallway. Table and chairs are far away from the stairs."
+    # task_goal = "Go to the elevator and wait for me there."
+    # task_goal = "I left my key in one of the classrooms. Could you please check all of them for it?"
     task_output_filename = "goals"
 
     # Default parameters for the reasoning_with_langchain_style function
-    default_observer_top_k = 10
-    default_observer_score_thres = 0.95
-    default_observer_radius = None
+    default_top_k = 10
+    default_score_thres = 0.95
+    default_radius = None
 
     asyncio.run(reasoning_with_langchain_style(
         goal=task_goal,
-        observer_top_k_suggestion=default_observer_top_k,
-        observer_score_thres_suggestion=default_observer_score_thres,
-        observer_radius_suggestion=default_observer_radius,
+        top_k_suggestion=default_top_k,
+        score_thres_suggestion=default_score_thres,
+        radius_suggestion=default_radius,
         output_npy_filename_base=task_output_filename,
         agent_model_name="gpt-4o",
         temperature_agent=0.1

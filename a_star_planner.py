@@ -202,7 +202,7 @@ class AStarPlanner:
             path_x_coords = [p[0] for p in path_to_visualize_px]
             path_y_coords = [p[1] for p in path_to_visualize_px]
             plt.plot(path_x_coords, path_y_coords, 'b-', linewidth=1.5, label="Smoothed A* Path" if original_path_px else "A* Path")
-            title = f"A* Path Planning (Resolution: {self.resolution} m/px)"
+            title = f"A* Path Planning"
         else:
             title = "A* Path Planning - Path Not Found"
 
